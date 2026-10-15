@@ -169,6 +169,8 @@ textarea { min-height: 84px; resize: vertical; }
     <button class="btn btn-primary" id="new-btn">+ New record</button>
     <button class="btn" id="pdf-btn">Download PDF</button>
   </div>
+  <button class="btn-text" id="import-btn" style="align-self:flex-start;padding-left:0">Import backup file</button>
+  <input type="file" id="import-file" accept=".json,application/json" hidden>
   <div id="list" style="display:grid;gap:10px"></div>
 </div>
 
@@ -614,6 +616,33 @@ textarea { min-height: 84px; resize: vertical; }
     const name = `thought-record-${new Date().toISOString().slice(0, 10)}.pdf`;
     try { doc.save(name); toast("PDF downloaded"); }
     catch { toast("Couldn’t save the PDF. Try again."); }
+  };
+
+  // ---------- import a backup file (e.g. from the Claude version) ----------
+  $("#import-btn").onclick = () => { $("#import-file").value = ""; $("#import-file").click(); };
+  $("#import-file").onchange = async () => {
+    const file = $("#import-file").files[0];
+    if (!file || !unlocked) return;
+    const str = (v, n) => (typeof v === "string" ? v.slice(0, n) : "");
+    let list;
+    try {
+      const parsed = JSON.parse(await file.text());
+      list = (Array.isArray(parsed) ? parsed : parsed.records || []).filter(r => r && typeof r === "object" && str(r.situation, 5000).trim());
+    } catch { return toast("That file isn’t a Thought Record backup."); }
+    if (!list.length) return toast("No records found in that file.");
+    const recs = list.map(r => ({
+      id: /^[A-Za-z0-9_-]{4,64}$/.test(r.id || "") ? r.id : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      when: isNaN(new Date(r.when)) ? new Date().toISOString() : new Date(r.when).toISOString(),
+      situation: str(r.situation, 5000), thought: str(r.thought, 5000), behavior: str(r.behavior, 5000),
+      emotions: (Array.isArray(r.emotions) ? r.emotions : []).slice(0, 30).map(e => ({ name: str(e && e.name, 40), intensity: Math.max(0, Math.min(100, Math.round(+(e && e.intensity) || 0))) })).filter(e => e.name)
+    }));
+    toast(`Importing ${recs.length} record${recs.length > 1 ? "s" : ""}…`);
+    try {
+      const { error } = await sb.from("records").upsert(await Promise.all(recs.map(encryptRow)));
+      if (error) throw error;
+      records = await store.load(); renderList();
+      toast(`Imported ${recs.length} record${recs.length > 1 ? "s" : ""}`);
+    } catch (x) { toast(friendly(x)); }
   };
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
