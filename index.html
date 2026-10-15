@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://gxlgnqtbmytwjoisrsjf.supabase.co; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Thought Record</title>
 <meta name="theme-color" content="#b8336a">
 <meta name="mobile-web-app-capable" content="yes">
@@ -83,6 +85,11 @@ textarea { min-height: 84px; resize: vertical; }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 0; }
 .err { color: var(--accent); margin: 0; font-weight: 700; }
 .ok { color: var(--ink); background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; margin: 0; }
+.rec { display: grid; gap: 12px; text-align: left; }
+.rec p { margin: 0; color: var(--ink); }
+.rec-code { display: block; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; letter-spacing: 0.04em; background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px; padding: 14px 8px; overflow-wrap: anywhere; user-select: all; }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
 .tabs button { border: 0; background: none; border-radius: 8px; padding: 9px; font-weight: 700; color: var(--muted); }
 .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); }
@@ -129,6 +136,27 @@ textarea { min-height: 84px; resize: vertical; }
       <button type="button" class="btn-text" id="forgot-btn">Forgot password?</button>
       <button type="button" class="btn-text" id="back-btn" hidden>← Back to log in</button>
     </form>
+    <div id="rec-show" class="rec" hidden>
+      <p>This code unlocks your records if you ever reset your password. Without it, nobody can open them again, not even you. Write it down and keep it somewhere safe.</p>
+      <code id="rec-code" class="rec-code"></code>
+      <button type="button" class="btn" id="rec-copy">Copy code</button>
+      <label class="check"><input type="checkbox" id="rec-saved"> I saved my recovery code</label>
+      <button type="button" class="btn btn-primary btn-block" id="rec-continue" disabled>Continue</button>
+    </div>
+    <div id="rec-enter" class="rec" hidden>
+      <div>
+        <label for="rec-input">Recovery code</label>
+        <input type="text" id="rec-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX">
+      </div>
+      <p class="err" id="rec-err" hidden></p>
+      <button type="button" class="btn btn-primary btn-block" id="rec-submit">Unlock records</button>
+      <button type="button" class="btn-text" id="rec-cancel">Cancel</button>
+      <button type="button" class="btn-text" id="rec-wipe">I lost my recovery code</button>
+      <div class="confirm" id="rec-wipe-confirm" hidden>
+        <span>Without the code your old records can’t be opened. Delete them all and start fresh? This can’t be undone.</span>
+        <div class="row"><button type="button" class="btn btn-primary" id="rec-wipe-yes">Delete and start fresh</button><button type="button" class="btn" id="rec-wipe-no">Go back</button></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -189,6 +217,7 @@ textarea { min-height: 84px; resize: vertical; }
   const SB_KEY = "sb_publishable_9UON5eUUQCPRmmGn5vJjLw_aWk381f3";
   const APP_URL = location.origin + location.pathname;
   const LS_RECORDS = "thought-records-v1", LS_EMAIL = "thought-records-email";
+  const IDLE_MS = 5 * 60 * 1000;
   // Session lives in memory only, so the app asks to log in every time it is opened
   const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } });
 
@@ -196,18 +225,126 @@ textarea { min-height: 84px; resize: vertical; }
   let unlocked = false;
   let editing = null;
   let mode = "login";
+  let dataKey = null;   // AES key that encrypts every record; exists only in memory while logged in
   let recovering = /type=recovery/.test(location.hash);
 
-  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
+  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600); }
   function lsGet(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
   function lsDel(k) { try { localStorage.removeItem(k); } catch {} }
 
-  // ---------- online storage (each user sees only their own rows) ----------
-  const COLS = "id,when,situation,thought,emotions,behavior";
+  // ---------- end-to-end encryption ----------
+  // Records are encrypted on the phone before upload. The record key is stored only
+  // wrapped (encrypted) by the password and by a recovery code, so the server never sees it.
+  const te = new TextEncoder(), td = new TextDecoder();
+  function b64(buf) { const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); }
+  const ub64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const randB64 = (n) => b64(crypto.getRandomValues(new Uint8Array(n)));
+  async function deriveKey(secret, saltB64) {
+    const base = await crypto.subtle.importKey("raw", te.encode(secret), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: ub64(saltB64), iterations: 310000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+  async function seal(key, bytes) { const iv = crypto.getRandomValues(new Uint8Array(12)); return b64(iv) + "." + b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes)); }
+  async function unseal(key, str) { const [iv, ct] = str.split("."); return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: ub64(iv) }, key, ub64(ct))); }
+  const importDataKey = (raw) => crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  async function wrapRaw(raw, secret) { const salt = randB64(16); return { salt, wrapped: await seal(await deriveKey(secret, salt), raw) }; }
+  async function unwrapRaw(wrapped, secret, salt) { return unseal(await deriveKey(secret, salt), wrapped); }
+  const normCode = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  function newRecoveryCode() {
+    const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(20));
+    return Array.from(r, x => abc[x % abc.length]).join("").match(/.{4}/g).join("-");
+  }
+
+  // Wait for a click on one of the given buttons; resolves with the button id
+  const waitFor = (...ids) => new Promise(res => ids.forEach(id => $(id).onclick = () => res(id)));
+  function panel(name) {
+    $("#lock-form").hidden = name !== "form";
+    $("#auth-tabs").hidden = name !== "form" || !(mode === "login" || mode === "signup");
+    $("#rec-show").hidden = name !== "rec-show";
+    $("#rec-enter").hidden = name !== "rec-enter";
+  }
+
+  async function createKeys(pw) {
+    const raw = crypto.getRandomValues(new Uint8Array(32));
+    const code = newRecoveryCode();
+    const a = await wrapRaw(raw, pw), b = await wrapRaw(raw, normCode(code));
+    const { error } = await sb.from("keys").insert({ salt: a.salt, wrapped_pw: a.wrapped, rsalt: b.salt, wrapped_rec: b.wrapped });
+    if (error) throw error;
+    // Show the recovery code once; it is the only way back in after a password reset
+    $("#lock-sub").textContent = "Save your recovery code";
+    $("#rec-code").textContent = code;
+    $("#rec-saved").checked = false; $("#rec-continue").disabled = true;
+    $("#rec-saved").onchange = () => $("#rec-continue").disabled = !$("#rec-saved").checked;
+    $("#rec-copy").onclick = async () => { try { await navigator.clipboard.writeText(code); toast("Recovery code copied"); } catch { toast("Copy didn’t work. Write it down instead."); } };
+    panel("rec-show");
+    await waitFor("#rec-continue");
+    panel("form");
+    return importDataKey(raw);
+  }
+
+  async function unlockKeys(pw) {
+    const { data: row, error } = await sb.from("keys").select("salt,wrapped_pw,rsalt,wrapped_rec").maybeSingle();
+    if (error) throw error;
+    if (!row) return createKeys(pw);
+    try { return await importDataKey(await unwrapRaw(row.wrapped_pw, pw, row.salt)); }
+    catch { /* password was reset since the key was wrapped: ask for the recovery code */ }
+    $("#lock-sub").textContent = "Your password was changed. Enter your recovery code to unlock your records.";
+    $("#rec-input").value = ""; $("#rec-err").hidden = true; $("#rec-wipe-confirm").hidden = true;
+    panel("rec-enter");
+    for (;;) {
+      const clicked = await waitFor("#rec-submit", "#rec-wipe", "#rec-cancel");
+      if (clicked === "#rec-cancel") throw { message: "__cancel" };
+      if (clicked === "#rec-wipe") {
+        $("#rec-wipe-confirm").hidden = false;
+        const c = await waitFor("#rec-wipe-yes", "#rec-wipe-no");
+        $("#rec-wipe-confirm").hidden = true;
+        if (c === "#rec-wipe-no") continue;
+        // Old records can never be decrypted without the code, so remove them and start a new key
+        const r1 = await sb.from("records").delete().not("id", "is", null); if (r1.error) throw r1.error;
+        const r2 = await sb.from("keys").delete().not("salt", "is", null); if (r2.error) throw r2.error;
+        panel("form");
+        return createKeys(pw);
+      }
+      try {
+        const raw = await unwrapRaw(row.wrapped_rec, normCode($("#rec-input").value), row.rsalt);
+        const a = await wrapRaw(raw, pw);
+        const { error: e2 } = await sb.from("keys").update({ salt: a.salt, wrapped_pw: a.wrapped, updated_at: new Date().toISOString() }).not("salt", "is", null);
+        if (e2) throw e2;
+        panel("form");
+        return importDataKey(raw);
+      } catch (x) {
+        $("#rec-err").textContent = x && x.code ? friendly(x) : "That recovery code is wrong. Check it and try again.";
+        $("#rec-err").hidden = false;
+      }
+    }
+  }
+
+  // ---------- online storage (each user sees only their own rows, and only as ciphertext) ----------
+  const FIELDS = ["when", "situation", "thought", "emotions", "behavior"];
+  const PLAIN_NULL = { when: null, situation: null, thought: null, emotions: null, behavior: null };
+  async function encryptRow(rec) {
+    const body = {}; FIELDS.forEach(f => body[f] = rec[f] ?? null);
+    return { id: rec.id, data: await seal(dataKey, te.encode(JSON.stringify(body))), ...PLAIN_NULL };
+  }
   const store = {
-    async load() { const { data, error } = await sb.from("records").select(COLS); if (error) throw error; return data || []; },
-    async save(rec) { const { error } = await sb.from("records").upsert(rec); if (error) throw error; records = records.filter(r => r.id !== rec.id).concat(rec); renderList(); },
+    async load() {
+      const { data, error } = await sb.from("records").select("id,data," + FIELDS.join(","));
+      if (error) throw error;
+      const out = [], legacy = [];
+      let bad = 0;
+      for (const row of data || []) {
+        if (row.data) {
+          try { out.push({ id: row.id, ...JSON.parse(td.decode(await unseal(dataKey, row.data))) }); } catch { bad++; }
+        } else {
+          const rec = { id: row.id }; FIELDS.forEach(f => rec[f] = row[f]); out.push(rec); legacy.push(rec);
+        }
+      }
+      // Encrypt any rows saved before encryption existed
+      if (legacy.length) { const { error: e } = await sb.from("records").upsert(await Promise.all(legacy.map(encryptRow))); if (!e) toast(`Encrypted ${legacy.length} older record${legacy.length > 1 ? "s" : ""}`); }
+      if (bad) toast(`${bad} record${bad > 1 ? "s" : ""} couldn’t be unlocked`);
+      return out;
+    },
+    async save(rec) { const { error } = await sb.from("records").upsert(await encryptRow(rec)); if (error) throw error; records = records.filter(r => r.id !== rec.id).concat(rec); renderList(); },
     async remove(id) { const { error } = await sb.from("records").delete().eq("id", id); if (error) throw error; records = records.filter(r => r.id !== id); renderList(); }
   };
 
@@ -225,15 +362,15 @@ textarea { min-height: 84px; resize: vertical; }
     mode = m;
     const t = {
       login:   ["Log in to open your records.", "Log in", "Password", "current-password"],
-      signup:  ["Create an account. You can log in from any phone with it.", "Create account", "Password (at least 6 characters)", "new-password"],
-      forgot:  ["Enter your email and we’ll send you a link to reset your password.", "Send reset link", "", "off"],
-      newpass: ["Choose a new password.", "Save new password", "New password", "new-password"]
+      signup:  ["Create an account. Your records are encrypted with your password, so only you can read them.", "Create account", "Password (at least 8 characters)", "new-password"],
+      forgot:  ["Enter your email and we’ll send you a link to reset your password. You’ll need your recovery code afterwards.", "Send reset link", "", "off"],
+      newpass: ["Choose a new password.", "Save new password", "New password (at least 8 characters)", "new-password"]
     }[m];
     $("#lock-sub").textContent = t[0];
     $("#lock-btn").textContent = t[1];
     $("#pw1-label").textContent = t[2];
     $("#pw1").autocomplete = t[3];
-    $("#auth-tabs").hidden = !(m === "login" || m === "signup");
+    panel("form");
     $("#tab-login").setAttribute("aria-selected", m === "login");
     $("#tab-signup").setAttribute("aria-selected", m === "signup");
     $("#email-wrap").hidden = m === "newpass";
@@ -249,7 +386,7 @@ textarea { min-height: 84px; resize: vertical; }
   $("#back-btn").onclick = () => setMode("login");
 
   function showLock() {
-    unlocked = false; records = []; editing = null;
+    unlocked = false; records = []; editing = null; dataKey = null;
     $("#home").hidden = true; $("#editor").hidden = true;
     $("#list").innerHTML = "";
     $("#lock").hidden = false;
@@ -266,7 +403,7 @@ textarea { min-height: 84px; resize: vertical; }
     const fail = (m) => { err.textContent = m; err.hidden = false; };
     const done = (m) => { ok.textContent = m; ok.hidden = false; };
     if (mode !== "newpass" && !/^\S+@\S+\.\S+$/.test(email)) return fail("Enter a valid email address.");
-    if ((mode === "signup" || mode === "newpass") && pw.length < 6) return fail("Password needs at least 6 characters.");
+    if ((mode === "signup" || mode === "newpass") && pw.length < 8) return fail("Password needs at least 8 characters.");
     if ((mode === "signup" || mode === "newpass") && pw !== $("#pw2").value) return fail("The two passwords don’t match.");
     if (mode === "login" && !pw) return fail("Enter your password.");
     const startMode = mode, label = btn.textContent;
@@ -276,13 +413,13 @@ textarea { min-height: 84px; resize: vertical; }
         const { error } = await sb.auth.signInWithPassword({ email, password: pw });
         if (error) throw error;
         lsSet(LS_EMAIL, email);
-        await openApp();
+        await openApp(pw);
       } else if (mode === "signup") {
         const { data, error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: APP_URL } });
         if (error) throw error;
         lsSet(LS_EMAIL, email);
         if (data.user && data.user.identities && data.user.identities.length === 0) { setMode("login"); fail("This email already has an account. Log in instead."); }
-        else if (data.session) { await openApp(); toast("Account created"); }
+        else if (data.session) { await openApp(pw); }
         else { setMode("login"); done(`Account created. We sent a confirmation link to ${email}. Open it, then log in here.`); }
       } else if (mode === "forgot") {
         const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
@@ -293,40 +430,52 @@ textarea { min-height: 84px; resize: vertical; }
         const { error } = await sb.auth.updateUser({ password: pw });
         if (error) throw error;
         recovering = false;
-        await openApp(); toast("Password changed");
+        await openApp(pw);
       }
-    } catch (x) { fail(friendly(x)); }
+    } catch (x) {
+      if (x && x.message === "__cancel") { await logOut(); }
+      else { panel("form"); fail(friendly(x)); try { await sb.auth.signOut({ scope: "local" }); } catch {} }
+    }
     btn.disabled = false;
     if (mode === startMode) btn.textContent = label;
   });
 
-  // Links from emails (confirm sign up, reset password) come back with a session in the address
+  // Links from emails come back with a session in the address
   const fromEmailLink = /access_token/.test(location.hash);
   sb.auth.onAuthStateChange((event, session) => {
     if (event === "PASSWORD_RECOVERY") { recovering = true; if (!unlocked) setMode("newpass"); }
-    else if (event === "SIGNED_IN" && session && fromEmailLink && !recovering && !unlocked) setTimeout(openApp, 0);
+    else if (event === "SIGNED_IN" && session && fromEmailLink && !recovering && !unlocked) {
+      // Email confirmed: the password is still needed to unlock the encrypted records
+      sb.auth.signOut({ scope: "local" }).catch(() => {});
+      setMode("login"); $("#lock-ok").textContent = "Email confirmed. Log in to continue."; $("#lock-ok").hidden = false;
+    }
   });
 
-  async function openApp() {
+  async function openApp(pw) {
     if (unlocked) return;
+    dataKey = await unlockKeys(pw);
     unlocked = true;
     $("#lock").hidden = true;
     $("#home").hidden = false; $("#editor").hidden = true;
     $("#list").innerHTML = `<div class="empty"><p>Loading your records…</p></div>`;
     try {
       records = await store.load();
-      // Move records saved on this phone by the older version into the account
+      // Move records saved on this phone by the oldest version into the account, encrypted
       const old = lsGet(LS_RECORDS, []);
       if (old.length) {
-        const { error } = await sb.from("records").upsert(old.map(({ id, when, situation, thought, emotions, behavior }) => ({ id, when, situation, thought, emotions, behavior })));
+        const { error } = await sb.from("records").upsert(await Promise.all(old.map(encryptRow)));
         if (!error) { lsDel(LS_RECORDS); records = await store.load(); toast(`Moved ${old.length} record${old.length > 1 ? "s" : ""} from this phone to your account`); }
       }
       showHome();
     } catch (x) { $("#list").innerHTML = `<div class="empty"><p>${esc(friendly(x))}</p></div>`; }
+    bumpIdle();
   }
 
+  // Log out after 5 minutes without use, and whenever the app is left
+  let idleTimer = 0;
+  function bumpIdle() { clearTimeout(idleTimer); if (unlocked) idleTimer = setTimeout(() => { if (unlocked) { logOut(); toast("Logged out after 5 minutes without use"); } }, IDLE_MS); }
+  ["pointerdown", "keydown", "input", "scroll"].forEach(ev => document.addEventListener(ev, bumpIdle, { passive: true }));
   $("#lock-now").onclick = logOut;
-  // Log out whenever the app is left (switching apps, closing it, turning off the screen)
   document.addEventListener("visibilitychange", () => { if (document.hidden && unlocked) logOut(); });
   window.addEventListener("pagehide", () => { if (unlocked) logOut(); });
 
