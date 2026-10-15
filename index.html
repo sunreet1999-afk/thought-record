@@ -13,13 +13,14 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
+<script src="lib/supabase.min.js"></script>
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="lib/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 body { margin: 0; }
 [hidden] { display: none !important; }
-/* Layout: one plain column — top bar, records list, one form screen; a lock screen covers everything until the password is entered. */
+/* Layout: one plain column — top bar, records list, one form screen; a login screen covers everything until the person logs in. */
 :root {
   --bg: #f4f3f7;
   --surface: #ffffff;
@@ -69,7 +70,7 @@ button { cursor: pointer; }
 form { display: grid; gap: 14px; }
 label { font-weight: 700; display: block; margin-bottom: 4px; }
 label span { font-weight: 400; color: var(--muted); }
-textarea, input[type="text"], input[type="password"], input[type="number"], input[type="datetime-local"] {
+textarea, input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="datetime-local"] {
   width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
 }
 textarea { min-height: 84px; resize: vertical; }
@@ -81,6 +82,10 @@ textarea { min-height: 84px; resize: vertical; }
 .emo-chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 0; }
 .err { color: var(--accent); margin: 0; font-weight: 700; }
+.ok { color: var(--ink); background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; margin: 0; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.tabs button { border: 0; background: none; border-radius: 8px; padding: 9px; font-weight: 700; color: var(--muted); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); }
 .confirm { background: var(--accent-soft); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
 
 .lock { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px 16px; padding-top: calc(24px + env(safe-area-inset-top, 0px)); }
@@ -93,20 +98,24 @@ textarea { min-height: 84px; resize: vertical; }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 999px; font-size: 0.9rem; z-index: 60; max-width: calc(100% - 32px); text-align: center; }
 </style>
 
-<!-- Lock screen: shown on every open and whenever the app is left -->
+<!-- Login screen: shown on every open and whenever the app is left -->
 <div class="lock" id="lock">
   <div class="lock-box">
     <div class="lock-icon" aria-hidden="true">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent)"><rect x="5" y="11" width="14" height="10" rx="2" fill="none"/><path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none"/></svg>
     </div>
     <h2 id="lock-title">Thought Record</h2>
-    <p id="lock-sub">Loading…</p>
-    <form id="lock-form" hidden>
-      <div>
-        <label for="uid" id="uid-label">User ID</label>
-        <input type="text" id="uid" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="40">
+    <p id="lock-sub">Log in to open your records.</p>
+    <div class="tabs" id="auth-tabs" role="tablist">
+      <button type="button" role="tab" id="tab-login" data-m="login">Log in</button>
+      <button type="button" role="tab" id="tab-signup" data-m="signup">Sign up</button>
+    </div>
+    <form id="lock-form" novalidate>
+      <div id="email-wrap">
+        <label for="email">Email</label>
+        <input type="email" id="email" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email">
       </div>
-      <div>
+      <div id="pw1-wrap">
         <label for="pw1" id="pw1-label">Password</label>
         <input type="password" id="pw1" autocomplete="current-password">
       </div>
@@ -115,7 +124,10 @@ textarea { min-height: 84px; resize: vertical; }
         <input type="password" id="pw2" autocomplete="new-password">
       </div>
       <p class="err" id="lock-err" hidden></p>
-      <button class="btn btn-primary btn-block" id="lock-btn">Unlock</button>
+      <p class="ok" id="lock-ok" hidden></p>
+      <button class="btn btn-primary btn-block" id="lock-btn">Log in</button>
+      <button type="button" class="btn-text" id="forgot-btn">Forgot password?</button>
+      <button type="button" class="btn-text" id="back-btn" hidden>← Back to log in</button>
     </form>
   </div>
 </div>
@@ -123,7 +135,7 @@ textarea { min-height: 84px; resize: vertical; }
 <div class="wrap" id="home" hidden>
   <div class="bar">
     <h1>Thought Record</h1>
-    <button class="btn-text" id="lock-now">Lock</button>
+    <button class="btn-text" id="lock-now">Log out</button>
   </div>
   <div class="row">
     <button class="btn btn-primary" id="new-btn">+ New record</button>
@@ -173,96 +185,150 @@ textarea { min-height: 84px; resize: vertical; }
 (() => {
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const LS_RECORDS = "thought-records-v1", LS_LOCK = "thought-records-lock";
-  const LOCK_ID = "_lock";
+  const SB_URL = "https://gxlgnqtbmytwjoisrsjf.supabase.co";
+  const SB_KEY = "sb_publishable_9UON5eUUQCPRmmGn5vJjLw_aWk381f3";
+  const APP_URL = location.origin + location.pathname;
+  const LS_RECORDS = "thought-records-v1", LS_EMAIL = "thought-records-email";
+  // Session lives in memory only, so the app asks to log in every time it is opened
+  const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } });
 
   let records = [];
-  let lockInfo = null;      // { salt, hash } or null when no password yet
   let unlocked = false;
-  let store = null;
   let editing = null;
+  let mode = "login";
+  let recovering = /type=recovery/.test(location.hash);
 
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
-
-  // ---------- storage: private account storage, or this device as fallback ----------
   function lsGet(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
-  const localStore = {
-    async loadLock() { return lsGet(LS_LOCK, null); },
-    async saveLock(v) { lsSet(LS_LOCK, v); },
-    subscribe(cb) { cb(lsGet(LS_RECORDS, [])); },
-    async save(rec) { const l = lsGet(LS_RECORDS, []).filter(r => r.id !== rec.id); l.push(rec); lsSet(LS_RECORDS, l); records = l; renderList(); },
-    async remove(id) { const l = lsGet(LS_RECORDS, []).filter(r => r.id !== id); lsSet(LS_RECORDS, l); records = l; renderList(); }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch {} }
+
+  // ---------- online storage (each user sees only their own rows) ----------
+  const COLS = "id,when,situation,thought,emotions,behavior";
+  const store = {
+    async load() { const { data, error } = await sb.from("records").select(COLS); if (error) throw error; return data || []; },
+    async save(rec) { const { error } = await sb.from("records").upsert(rec); if (error) throw error; records = records.filter(r => r.id !== rec.id).concat(rec); renderList(); },
+    async remove(id) { const { error } = await sb.from("records").delete().eq("id", id); if (error) throw error; records = records.filter(r => r.id !== id); renderList(); }
   };
 
-  // Records stay on this phone only
-  async function pickStore() { return localStore; }
-
-  // ---------- password ----------
-  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
-  const unb64 = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-  async function hashPw(pw, saltB64) {
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: unb64(saltB64), iterations: 150000, hash: "SHA-256" }, key, 256);
-    return b64(bits);
+  // ---------- login screen ----------
+  const netMsg = "No internet connection. Connect and try again.";
+  function friendly(err) {
+    const m = (err && err.message || "").toLowerCase();
+    if (!navigator.onLine || m.includes("fetch")) return netMsg;
+    if (m.includes("invalid login")) return "Email or password is wrong.";
+    if (m.includes("not confirmed")) return "Confirm your email first. Open the link we emailed you, then log in.";
+    if (m.includes("rate limit") || m.includes("security purposes")) return "Too many tries. Wait a minute and try again.";
+    return err && err.message ? err.message : "Something went wrong. Try again.";
   }
+  function setMode(m) {
+    mode = m;
+    const t = {
+      login:   ["Log in to open your records.", "Log in", "Password", "current-password"],
+      signup:  ["Create an account. You can log in from any phone with it.", "Create account", "Password (at least 6 characters)", "new-password"],
+      forgot:  ["Enter your email and we’ll send you a link to reset your password.", "Send reset link", "", "off"],
+      newpass: ["Choose a new password.", "Save new password", "New password", "new-password"]
+    }[m];
+    $("#lock-sub").textContent = t[0];
+    $("#lock-btn").textContent = t[1];
+    $("#pw1-label").textContent = t[2];
+    $("#pw1").autocomplete = t[3];
+    $("#auth-tabs").hidden = !(m === "login" || m === "signup");
+    $("#tab-login").setAttribute("aria-selected", m === "login");
+    $("#tab-signup").setAttribute("aria-selected", m === "signup");
+    $("#email-wrap").hidden = m === "newpass";
+    $("#pw1-wrap").hidden = m === "forgot";
+    $("#pw2-wrap").hidden = !(m === "signup" || m === "newpass");
+    $("#forgot-btn").hidden = m !== "login";
+    $("#back-btn").hidden = m !== "forgot";
+    $("#lock-err").hidden = true; $("#lock-ok").hidden = true;
+    $("#pw1").value = ""; $("#pw2").value = "";
+  }
+  $("#auth-tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setMode(b.dataset.m); });
+  $("#forgot-btn").onclick = () => setMode("forgot");
+  $("#back-btn").onclick = () => setMode("login");
 
   function showLock() {
-    unlocked = false;
+    unlocked = false; records = []; editing = null;
     $("#home").hidden = true; $("#editor").hidden = true;
-    $("#list").innerHTML = ""; editing = null;
+    $("#list").innerHTML = "";
     $("#lock").hidden = false;
-    $("#lock-form").hidden = false;
-    $("#lock-err").hidden = true;
-    $("#pw1").value = ""; $("#pw2").value = "";
-    const setup = !lockInfo, upgrade = !!lockInfo && !lockInfo.userId;
-    $("#uid").value = "";
-    $("#lock-sub").textContent = setup ? "Create a user ID and password. You’ll need them every time you open the app."
-      : upgrade ? "Choose a user ID, then enter your current password." : "Log in to open your records.";
-    $("#uid-label").textContent = setup || upgrade ? "Choose a user ID" : "User ID";
-    $("#pw1-label").textContent = setup ? "New password" : upgrade ? "Current password" : "Password";
-    $("#pw1").autocomplete = setup ? "new-password" : "current-password";
-    $("#pw2-wrap").hidden = !setup;
-    $("#lock-btn").textContent = setup ? "Create account" : upgrade ? "Save user ID" : "Log in";
+    $("#email").value = lsGet(LS_EMAIL, "");
+    setMode(recovering ? "newpass" : "login");
   }
+  async function logOut() { showLock(); try { await sb.auth.signOut({ scope: "local" }); } catch {} }
 
   $("#lock-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const err = $("#lock-err"), pw = $("#pw1").value, uid = $("#uid").value.trim().toLowerCase();
-    err.hidden = true;
+    const err = $("#lock-err"), ok = $("#lock-ok"), btn = $("#lock-btn");
+    const email = $("#email").value.trim().toLowerCase(), pw = $("#pw1").value;
+    err.hidden = true; ok.hidden = true;
     const fail = (m) => { err.textContent = m; err.hidden = false; };
-    if (!uid) return fail("Enter a user ID.");
-    if (!lockInfo) {
-      if (uid.length < 3) return fail("User ID needs at least 3 characters.");
-      if (pw.length < 4) return fail("Password needs at least 4 characters.");
-      if (pw !== $("#pw2").value) return fail("The two passwords don’t match.");
-      const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
-      const info = { userId: uid, salt, hash: await hashPw(pw, salt) };
-      try { await store.saveLock(info); } catch { return fail("Couldn’t save. Check your connection."); }
-      lockInfo = info;
-      openApp(); toast("Account created");
-    } else {
-      $("#lock-btn").disabled = true;
-      const pwOk = (await hashPw(pw, lockInfo.salt)) === lockInfo.hash;
-      $("#lock-btn").disabled = false;
-      if (!lockInfo.userId) {
-        if (uid.length < 3) return fail("User ID needs at least 3 characters.");
-        if (!pwOk) { $("#pw1").value = ""; return fail("Wrong password. Try again."); }
-        const info = { ...lockInfo, userId: uid };
-        try { await store.saveLock(info); } catch { return fail("Couldn’t save. Check your connection."); }
-        lockInfo = info; openApp(); toast("User ID saved");
-        return;
+    const done = (m) => { ok.textContent = m; ok.hidden = false; };
+    if (mode !== "newpass" && !/^\S+@\S+\.\S+$/.test(email)) return fail("Enter a valid email address.");
+    if ((mode === "signup" || mode === "newpass") && pw.length < 6) return fail("Password needs at least 6 characters.");
+    if ((mode === "signup" || mode === "newpass") && pw !== $("#pw2").value) return fail("The two passwords don’t match.");
+    if (mode === "login" && !pw) return fail("Enter your password.");
+    const startMode = mode, label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Please wait…";
+    try {
+      if (mode === "login") {
+        const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+        if (error) throw error;
+        lsSet(LS_EMAIL, email);
+        await openApp();
+      } else if (mode === "signup") {
+        const { data, error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: APP_URL } });
+        if (error) throw error;
+        lsSet(LS_EMAIL, email);
+        if (data.user && data.user.identities && data.user.identities.length === 0) { setMode("login"); fail("This email already has an account. Log in instead."); }
+        else if (data.session) { await openApp(); toast("Account created"); }
+        else { setMode("login"); done(`Account created. We sent a confirmation link to ${email}. Open it, then log in here.`); }
+      } else if (mode === "forgot") {
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
+        if (error) throw error;
+        lsSet(LS_EMAIL, email);
+        done(`If ${email} has an account, a reset link is on its way. Open it on this phone.`);
+      } else if (mode === "newpass") {
+        const { error } = await sb.auth.updateUser({ password: pw });
+        if (error) throw error;
+        recovering = false;
+        await openApp(); toast("Password changed");
       }
-      if (!pwOk || uid !== lockInfo.userId) { $("#pw1").value = ""; return fail("User ID or password is wrong."); }
-      openApp();
-    }
+    } catch (x) { fail(friendly(x)); }
+    btn.disabled = false;
+    if (mode === startMode) btn.textContent = label;
   });
 
-  function openApp() { unlocked = true; $("#lock").hidden = true; showHome(); }
-  $("#lock-now").onclick = showLock;
-  // Lock again whenever the app is left (switching apps, closing the tab, turning off the screen)
-  document.addEventListener("visibilitychange", () => { if (document.hidden && unlocked) showLock(); });
-  window.addEventListener("pagehide", () => { if (unlocked) showLock(); });
+  // Links from emails (confirm sign up, reset password) come back with a session in the address
+  const fromEmailLink = /access_token/.test(location.hash);
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY") { recovering = true; if (!unlocked) setMode("newpass"); }
+    else if (event === "SIGNED_IN" && session && fromEmailLink && !recovering && !unlocked) setTimeout(openApp, 0);
+  });
+
+  async function openApp() {
+    if (unlocked) return;
+    unlocked = true;
+    $("#lock").hidden = true;
+    $("#home").hidden = false; $("#editor").hidden = true;
+    $("#list").innerHTML = `<div class="empty"><p>Loading your records…</p></div>`;
+    try {
+      records = await store.load();
+      // Move records saved on this phone by the older version into the account
+      const old = lsGet(LS_RECORDS, []);
+      if (old.length) {
+        const { error } = await sb.from("records").upsert(old.map(({ id, when, situation, thought, emotions, behavior }) => ({ id, when, situation, thought, emotions, behavior })));
+        if (!error) { lsDel(LS_RECORDS); records = await store.load(); toast(`Moved ${old.length} record${old.length > 1 ? "s" : ""} from this phone to your account`); }
+      }
+      showHome();
+    } catch (x) { $("#list").innerHTML = `<div class="empty"><p>${esc(friendly(x))}</p></div>`; }
+  }
+
+  $("#lock-now").onclick = logOut;
+  // Log out whenever the app is left (switching apps, closing it, turning off the screen)
+  document.addEventListener("visibilitychange", () => { if (document.hidden && unlocked) logOut(); });
+  window.addEventListener("pagehide", () => { if (unlocked) logOut(); });
 
   // ---------- list ----------
   const sorted = () => [...records].sort((a, b) => (b.when || "").localeCompare(a.when || ""));
@@ -404,13 +470,8 @@ textarea { min-height: 84px; resize: vertical; }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
   // ---------- start ----------
-  (async () => {
-    store = await pickStore();
-    try { lockInfo = await store.loadLock(); } catch { lockInfo = null; }
-    store.subscribe(list => { records = list; renderList(); });
-    showLock();
-    $("#uid").focus();
-  })();
+  showLock();
+  setTimeout(() => (recovering || $("#email").value ? $("#pw1") : $("#email")).focus(), 50);
 })();
 </script>
 </body>
