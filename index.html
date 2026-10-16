@@ -526,6 +526,25 @@ textarea.big { min-height: 220px; }
         { key: "beliefAfter", type: "rating", label: "How much do I believe it now?", hint: "0–100" }
       ]
     },
+    // Same six fields as the experiment, worded for "nothing counts unless praised" and "why bother starting"
+    actionApproval: {
+      name: "Action & Approval Seeking", pick: "Action & Approval Seeking",
+      required: "belief", titleOf: r => r.belief,
+      fields: [
+        { key: "belief", type: "textarea", label: "Belief to test", hint: "What negative thought is stopping me from acting, or making me seek approval?",
+          ph: "If nobody praises or appreciates my actions, they aren’t worthwhile.",
+          help: "Other examples: “If I start the gym, I won’t stick with it, so why bother?” · “If nobody likes my post, my business idea is bad.”" },
+        { key: "beliefBefore", type: "rating", label: "How much do I believe it?", hint: "0–100" },
+        { key: "experiment", type: "textarea", label: "Experiment", hint: "What small action will I take to test this belief?",
+          ph: "Do a 10-minute workout on Monday and Wednesday without telling anyone.",
+          help: "Other examples: finish one lesson of a course · share my work and don’t check likes for 24 hours." },
+        { key: "outcome", type: "textarea", label: "What actually happened?", hint: "What did I do, how did I feel, and what was the actual result?",
+          help: "Any result is useful, including a disappointing or unclear one." },
+        { key: "learned", type: "textarea", label: "What did I learn?", hint: "Was my prediction accurate? What evidence did I find?",
+          help: "My prediction may have been right, wrong or partly right. Write what the evidence shows." },
+        { key: "beliefAfter", type: "rating", label: "How much do I believe it now?", hint: "0–100" }
+      ]
+    },
     journal: {
       name: "Journal", pick: "Journal",
       required: "text", titleOf: r => (r.style || "Journal") + (r.text ? ": " + r.text.split("\n")[0].slice(0, 80) : ""),
@@ -545,7 +564,7 @@ textarea.big { min-height: 220px; }
     approval: { name: "Others’ Approval", kinds: ["approval"],
       blurb: "For moments when you worry what someone thinks of you. Capture the thought, then write a more balanced one.",
       ref: "Based on the CBT thought record (Beck, 2011) and work on approval-seeking beliefs (Weissman & Beck, 1978; Burns, 1980)." },
-    experiment: { name: "Behavioural Experiment", kinds: ["experiment"],
+    experiment: { name: "Behavioural Experiment", kinds: ["experiment", "actionApproval"],
       blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you feared.",
       ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004)." },
     journal: { name: "Journal", kinds: ["journal"],
@@ -588,7 +607,7 @@ textarea.big { min-height: 220px; }
       if (r.emotions?.length) lines.push(`<p class="m">${esc(emoText(r.emotions))}</p>`);
       if (r.behavior) lines.push(`<p class="m">→ ${esc(r.behavior)}</p>`);
       if (k === "approval" && r.balanced) lines.push(`<p class="m">Balanced: ${esc(r.balanced)}</p>`);
-    } else if (k === "experiment") {
+    } else if (k === "experiment" || k === "actionApproval") {
       if (r.experiment) lines.push(`<p class="m">${esc(r.experiment)}</p>`);
       if (has(r.beliefBefore) && has(r.beliefAfter) && r.outcome) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
       lines.push(`<p class="m">${r.outcome ? "→ " + esc(r.learned || r.outcome) : "<span class=\"pill\">Planned</span>"}</p>`);
@@ -597,7 +616,7 @@ textarea.big { min-height: 220px; }
       if (rest) lines.push(`<p class="m">${esc(rest.slice(0, 160))}${rest.length > 160 ? "…" : ""}</p>`);
       if (has(r.moodBefore) && has(r.moodAfter)) lines.push(`<p class="m">Mood ${r.moodBefore} → ${r.moodAfter}</p>`);
     }
-    const pill = k === "approval" && TABS[tool].kinds.length > 1 ? ` <span class="pill">Others’ approval</span>` : "";
+    const pill = TABS[tool].kinds.length > 1 && k !== TABS[tool].kinds[0] ? ` <span class="pill">${esc(TOOLS[k].pick)}</span>` : "";
     return `<button class="entry" data-id="${esc(r.id)}"><small>${esc(fmtDate(r.when))}${pill}</small><p><b>${esc(TOOLS[k].titleOf(r))}</b></p>${lines.join("")}</button>`;
   }
   function renderList() {
@@ -721,7 +740,7 @@ textarea.big { min-height: 220px; }
     editing = rec || null;
     const k = rec ? kindOf(rec) : TABS[tool].kinds[0];
     clearInterval(timer);
-    $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" ? "entry" : k === "experiment" ? "experiment" : "record");
+    $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" ? "entry" : (k === "experiment" || k === "actionApproval") ? "experiment" : "record");
     $("#f-when").value = toLocalInput(rec?.when);
     const data = rec && k === "approval" && !rec.thought && rec.fear ? { ...rec, thought: rec.fear } : rec;
     renderForm(k, data);
