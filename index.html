@@ -537,11 +537,14 @@ textarea.big { min-height: 220px; }
       ]
     }
   };
-  // Tabs on the home screen; the Thought Record tab holds both kinds of thought record
+  // Tabs on the home screen; a tab with several kinds shows a record-type picker in its form
   const TABS = {
-    thought: { name: "Thought Record", kinds: ["thought", "approval"],
-      blurb: "When you notice a strong emotion or reaction, pause and capture what happened. Choose “Others’ approval” when the worry is about what someone thinks of you.",
+    thought: { name: "Thought Record", kinds: ["thought"],
+      blurb: "When you notice a strong emotion or reaction, pause and capture what happened, what went through your mind, how you felt and what you did.",
       ref: "Based on the CBT thought record (Beck, Cognitive Behavior Therapy, 2011)." },
+    approval: { name: "Others’ Approval", kinds: ["approval"],
+      blurb: "For moments when you worry what someone thinks of you. Capture the thought, then write a more balanced one.",
+      ref: "Based on the CBT thought record (Beck, 2011) and work on approval-seeking beliefs (Weissman & Beck, 1978; Burns, 1980)." },
     experiment: { name: "Behavioural Experiment", kinds: ["experiment"],
       blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you feared.",
       ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004)." },
@@ -594,7 +597,7 @@ textarea.big { min-height: 220px; }
       if (rest) lines.push(`<p class="m">${esc(rest.slice(0, 160))}${rest.length > 160 ? "…" : ""}</p>`);
       if (has(r.moodBefore) && has(r.moodAfter)) lines.push(`<p class="m">Mood ${r.moodBefore} → ${r.moodAfter}</p>`);
     }
-    const pill = k === "approval" ? ` <span class="pill">Others’ approval</span>` : "";
+    const pill = k === "approval" && TABS[tool].kinds.length > 1 ? ` <span class="pill">Others’ approval</span>` : "";
     return `<button class="entry" data-id="${esc(r.id)}"><small>${esc(fmtDate(r.when))}${pill}</small><p><b>${esc(TOOLS[k].titleOf(r))}</b></p>${lines.join("")}</button>`;
   }
   function renderList() {
