@@ -545,6 +545,20 @@ textarea.big { min-height: 220px; }
         { key: "beliefAfter", type: "rating", label: "How much do I believe it now?", hint: "0–100" }
       ]
     },
+    achievement: {
+      name: "Achievement vs Image", pick: "Achievement vs Image",
+      required: "goal", titleOf: r => r.goal,
+      fields: [
+        { key: "goal", type: "text", label: "What do I want to do?", ph: "Start a business, lose weight, learn something" },
+        { key: "unknown", type: "chips", multi: false, options: ["Yes", "No", "Maybe"], label: "If nobody ever knew about this achievement, would I still want to do it?" },
+        { key: "unknownWhy", type: "text", label: "Why?", hint: "optional" },
+        { key: "praised", type: "chips", multi: false, options: ["Yes", "No", "Maybe"], label: "If people praised me for this achievement, but I got no real personal benefit, would I still want to do it?" },
+        { key: "praisedWhy", type: "text", label: "Why?", hint: "optional" },
+        { key: "matters", type: "text", label: "What genuinely matters to me about this goal, apart from others’ opinions?" }
+      ],
+      pdf: { title: "Achievement vs Image", head: ["Date & Goal", "If nobody ever knew", "If praised, but no personal benefit", "What matters to me"], widths: [0.25, 0.25, 0.25, 0.25],
+             row: r => [`${fmtDate(r.when)}\n${r.goal || ""}`, [r.unknown, r.unknownWhy].filter(Boolean).join("\n"), [r.praised, r.praisedWhy].filter(Boolean).join("\n"), r.matters] }
+    },
     journal: {
       name: "Journal", pick: "Journal",
       required: "text", titleOf: r => (r.style || "Journal") + (r.text ? ": " + r.text.split("\n")[0].slice(0, 80) : ""),
@@ -567,6 +581,9 @@ textarea.big { min-height: 220px; }
     experiment: { name: "Behavioural Experiment", kinds: ["experiment", "actionApproval"],
       blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you feared.",
       ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004)." },
+    achievement: { name: "Achievement vs Image", kinds: ["achievement"],
+      blurb: "Notice whether a goal matters to you for its own sake, for recognition, or both. Both can matter, and there are no right answers.",
+      ref: "Self-reflection on personal and external motivation (Ryan & Deci, self-determination theory, 2000)." },
     journal: { name: "Journal", kinds: ["journal"],
       blurb: "Write freely, work through something difficult with expressive writing, or note three good things from your day.",
       ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) and the Three Good Things exercise (Seligman et al., 2005)." }
@@ -611,6 +628,10 @@ textarea.big { min-height: 220px; }
       if (r.experiment) lines.push(`<p class="m">${esc(r.experiment)}</p>`);
       if (has(r.beliefBefore) && has(r.beliefAfter) && r.outcome) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
       lines.push(`<p class="m">${r.outcome ? "→ " + esc(r.learned || r.outcome) : "<span class=\"pill\">Planned</span>"}</p>`);
+    } else if (k === "achievement") {
+      if (r.unknown) lines.push(`<p class="m">If nobody knew: ${esc(r.unknown)}</p>`);
+      if (r.praised) lines.push(`<p class="m">If only praised: ${esc(r.praised)}</p>`);
+      if (r.matters) lines.push(`<p class="m">→ ${esc(r.matters)}</p>`);
     } else if (k === "journal") {
       const rest = (r.text || "").split("\n").slice(1).join(" ").trim();
       if (rest) lines.push(`<p class="m">${esc(rest.slice(0, 160))}${rest.length > 160 ? "…" : ""}</p>`);
@@ -676,6 +697,7 @@ textarea.big { min-height: 220px; }
     const id = "f-" + f.key;
     const head = (forId) => `<label${forId ? ` for="${id}"` : ""}>${esc(f.label)}${f.hint ? ` <span>· ${esc(f.hint)}</span>` : ""}</label>`;
     const help = f.help ? `<p class="hint" id="help-${f.key}">${esc(f.help)}</p>` : "";
+    if (f.type === "text") return `<div>${head(true)}<input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}" value="${esc(v || "")}"></div>`;
     if (f.type === "textarea") return `<div>${head(true)}<textarea id="${id}"${f.big ? ' class="big"' : ""} placeholder="${esc(f.ph || "")}">${esc(v || "")}</textarea>${help}</div>`;
     if (f.type === "rating") {
       const max = f.max || 100, val = has(v) ? v : Math.round(max / 2);
@@ -691,7 +713,7 @@ textarea.big { min-height: 220px; }
     return "";
   }
   function readField(f) {
-    if (f.type === "textarea") return $("#f-" + f.key).value.trim();
+    if (f.type === "textarea" || f.type === "text") return $("#f-" + f.key).value.trim();
     if (f.type === "rating") return +$("#f-" + f.key).value;
     if (f.type === "chips") {
       const sel = [...document.querySelectorAll(`.chips[data-key="${f.key}"] button[aria-pressed="true"]`)].map(b => b.dataset.v);
@@ -740,7 +762,7 @@ textarea.big { min-height: 220px; }
     editing = rec || null;
     const k = rec ? kindOf(rec) : TABS[tool].kinds[0];
     clearInterval(timer);
-    $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" ? "entry" : (k === "experiment" || k === "actionApproval") ? "experiment" : "record");
+    $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" || k === "achievement" ? "entry" : (k === "experiment" || k === "actionApproval") ? "experiment" : "record");
     $("#f-when").value = toLocalInput(rec?.when);
     const data = rec && k === "approval" && !rec.thought && rec.fear ? { ...rec, thought: rec.fear } : rec;
     renderForm(k, data);
