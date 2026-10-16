@@ -22,7 +22,7 @@
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 body { margin: 0; }
 [hidden] { display: none !important; }
-/* Layout: one plain column — top bar, records list, one form screen; a login screen covers everything until the person logs in. */
+/* Layout: one plain column with worksheet tabs — top bar, records list, one form screen; a login screen covers everything until the person logs in. */
 :root {
   --bg: #f4f3f7;
   --surface: #ffffff;
@@ -90,6 +90,18 @@ textarea { min-height: 84px; resize: vertical; }
 .rec-code { display: block; text-align: center; font-family: ui-monospace, Consolas, monospace; font-size: 1.05rem; letter-spacing: 0.04em; background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px; padding: 14px 8px; overflow-wrap: anywhere; user-select: all; }
 .check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.tools { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.tools button { flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 14px; font-weight: 700; color: var(--muted); }
+.tools button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.blurb { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 0.9rem; }
+.chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.rating { display: grid; grid-template-columns: 1fr 4rem; gap: 10px; align-items: center; }
+.rating input { width: 100%; accent-color: var(--accent); }
+.rating output { text-align: right; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+textarea.big { min-height: 220px; }
+.pill { display: inline-block; font-size: 0.75rem; font-weight: 700; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
 .tabs button { border: 0; background: none; border-radius: 8px; padding: 9px; font-weight: 700; color: var(--muted); }
 .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); }
@@ -162,22 +174,33 @@ textarea { min-height: 84px; resize: vertical; }
 
 <div class="wrap" id="home" hidden>
   <div class="bar">
-    <h1>Thought Record</h1>
+    <h1 id="home-title">Thought Record</h1>
     <button class="btn-text" id="lock-now">Log out</button>
   </div>
+  <div class="tools" id="tools" role="tablist" aria-label="Worksheets"></div>
+  <p class="blurb" id="tool-blurb"></p>
   <div class="row">
-    <button class="btn btn-primary" id="new-btn">+ New record</button>
+    <button class="btn btn-primary" id="new-btn">+ New</button>
     <button class="btn" id="pdf-btn">Download PDF</button>
   </div>
+  <div class="confirm" id="pdf-panel" hidden>
+    <div>
+      <label for="pdf-pw">PDF password <span>· optional</span></label>
+      <input type="password" id="pdf-pw" autocomplete="new-password">
+      <p class="hint">Asks for this password when the PDF is opened. Without one, anyone who gets the file can read it.</p>
+    </div>
+    <div class="row"><button type="button" class="btn btn-primary" id="pdf-go">Download</button><button type="button" class="btn" id="pdf-cancel">Cancel</button></div>
+  </div>
+  <div id="list" style="display:grid;gap:10px"></div>
+  <p class="hint" id="tool-ref"></p>
   <button class="btn-text" id="import-btn" style="align-self:flex-start;padding-left:0">Import backup file</button>
   <input type="file" id="import-file" accept=".json,application/json" hidden>
-  <div id="list" style="display:grid;gap:10px"></div>
 </div>
 
 <div class="wrap" id="editor" hidden>
   <div class="bar">
     <button class="btn-text" id="ed-cancel">← Back</button>
-    <h1 id="ed-title" style="text-align:center">New record</h1>
+    <h1 id="ed-title" style="text-align:center">New</h1>
     <span style="width:60px"></span>
   </div>
   <form id="ed-form" novalidate>
@@ -185,24 +208,7 @@ textarea { min-height: 84px; resize: vertical; }
       <label for="f-when">Date</label>
       <input type="datetime-local" id="f-when">
     </div>
-    <div>
-      <label for="f-sit">Situation <span>· What happened?</span></label>
-      <textarea id="f-sit" placeholder="Got a short reply from a friend"></textarea>
-    </div>
-    <div>
-      <label for="f-thought">Automatic thought <span>· What went through your mind?</span></label>
-      <textarea id="f-thought" placeholder="They’re upset with me. I did something wrong."></textarea>
-    </div>
-    <div>
-      <label>Emotion(s) <span>· What did you feel? Tap all that fit, then rate 0–100</span></label>
-      <div class="emo-chips" id="emo-chips"></div>
-      <div id="emos" style="display:grid;gap:8px"></div>
-      <button type="button" class="btn-text" id="emo-add" style="padding-left:0">+ Add emotion</button>
-    </div>
-    <div>
-      <label for="f-beh">Behavior / reaction <span>· What did you do or avoid doing?</span></label>
-      <textarea id="f-beh" placeholder="Overthought for hours, didn’t reply back"></textarea>
-    </div>
+    <div id="ed-fields" style="display:grid;gap:16px"></div>
     <p class="err" id="ed-err" hidden></p>
     <button class="btn btn-primary btn-block" id="ed-save">Save</button>
     <div id="del-wrap"></div>
@@ -324,8 +330,9 @@ textarea { min-height: 84px; resize: vertical; }
   // ---------- online storage (each user sees only their own rows, and only as ciphertext) ----------
   const FIELDS = ["when", "situation", "thought", "emotions", "behavior"];
   const PLAIN_NULL = { when: null, situation: null, thought: null, emotions: null, behavior: null };
+  // Everything except the id goes inside the encrypted blob, including which tool the entry belongs to
   async function encryptRow(rec) {
-    const body = {}; FIELDS.forEach(f => body[f] = rec[f] ?? null);
+    const { id, ...body } = rec;
     return { id: rec.id, data: await seal(dataKey, te.encode(JSON.stringify(body))), ...PLAIN_NULL };
   }
   const store = {
@@ -391,6 +398,7 @@ textarea { min-height: 84px; resize: vertical; }
     unlocked = false; records = []; editing = null; dataKey = null;
     $("#home").hidden = true; $("#editor").hidden = true;
     $("#list").innerHTML = "";
+    $("#pdf-pw").value = ""; $("#pdf-panel").hidden = true; clearInterval(timer);
     $("#lock").hidden = false;
     $("#email").value = lsGet(LS_EMAIL, "");
     setMode(recovering ? "newpass" : "login");
@@ -481,29 +489,142 @@ textarea { min-height: 84px; resize: vertical; }
   document.addEventListener("visibilitychange", () => { if (document.hidden && unlocked) logOut(); });
   window.addEventListener("pagehide", () => { if (unlocked) logOut(); });
 
+  // ---------- worksheets ----------
+  const TRAPS = ["Mind reading", "Fortune telling", "Catastrophising", "Personalising", "Labelling", "All-or-nothing", "Should statements", "Discounting the positive", "Emotional reasoning"];
+  const JOURNAL_PROMPTS = {
+    "Free writing": "Write whatever is on your mind. No rules and no editing.",
+    "Expressive writing": "Write about your deepest thoughts and feelings about something that is upsetting you. Explore how it connects to your past, your relationships and who you want to be. Try to write for 15–20 minutes without stopping. Feeling a little low straight after is normal and usually passes.",
+    "Three good things": "Write three things that went well today. For each one, write why it went well and what part you played in it."
+  };
+  const TOOLS = {
+    thought: {
+      name: "Thought Record", tab: "Thought Record",
+      blurb: "When you notice a strong emotion or reaction, pause and capture what happened, what went through your mind, how you felt and what you did.",
+      ref: "Based on the CBT thought record (Beck, Cognitive Behavior Therapy, 2011).",
+      required: "situation", titleOf: r => r.situation,
+      fields: [
+        { key: "situation", type: "textarea", label: "Situation", hint: "What happened?", ph: "Got a short reply from a friend" },
+        { key: "thought", type: "textarea", label: "Automatic thought", hint: "What went through your mind?", ph: "They’re upset with me. I did something wrong." },
+        { key: "emotions", type: "emotions", label: "Emotion(s)", hint: "What did you feel? Tap all that fit, then rate 0–100" },
+        { key: "behavior", type: "textarea", label: "Behavior / reaction", hint: "What did you do or avoid doing?", ph: "Overthought for hours, didn’t reply back" }
+      ]
+    },
+    approval: {
+      name: "Approval Thought Record", tab: "Others’ Approval",
+      blurb: "For moments when you worry what someone thinks of you. Test the thought, then decide what you think of yourself.",
+      ref: "Based on CBT thought records (Beck, 2011) and work on approval-seeking beliefs (Weissman & Beck, Dysfunctional Attitude Scale, 1978; Burns, Feeling Good, 1980).",
+      required: "situation", titleOf: r => r.situation,
+      fields: [
+        { key: "situation", type: "textarea", label: "Situation", hint: "What happened?", ph: "My manager didn’t say anything about my presentation" },
+        { key: "person", type: "text", label: "Whose approval did I want?", ph: "My manager" },
+        { key: "fear", type: "textarea", label: "What did I think they were thinking of me?", ph: "She thinks I’m not good enough for this job." },
+        { key: "beliefBefore", type: "rating", label: "How much do I believe that?", hint: "0–100" },
+        { key: "emotions", type: "emotions", label: "Emotion(s)", hint: "Tap all that fit, then rate 0–100" },
+        { key: "traps", type: "chips", multi: true, options: TRAPS, label: "Thinking traps", hint: "Tap any you notice" },
+        { key: "evFor", type: "textarea", label: "Evidence that supports the thought" },
+        { key: "evAgainst", type: "textarea", label: "Evidence against it, or that it isn’t the whole story" },
+        { key: "ifTrue", type: "textarea", label: "If they really did disapprove, what would it mean? How would I cope?", ph: "It would be one person’s opinion of one presentation. I could ask for feedback." },
+        { key: "friend", type: "textarea", label: "What would I tell a friend in this situation?" },
+        { key: "selfApproval", type: "textarea", label: "What do I value about how I acted, whatever they think?" },
+        { key: "balanced", type: "textarea", label: "Balanced thought", ph: "I can’t know what she thinks. I prepared well, and one silence doesn’t define my work." },
+        { key: "beliefAfter", type: "rating", label: "How much do I believe the original thought now?", hint: "0–100" },
+        { key: "feelNow", type: "textarea", label: "How I feel now" }
+      ]
+    },
+    experiment: {
+      name: "Behavioural Experiment", tab: "Experiment",
+      blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you expected.",
+      ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004).",
+      required: "belief", titleOf: r => r.belief,
+      fields: [
+        { key: "belief", type: "textarea", label: "Belief or prediction to test", ph: "If I say no to my friend, she will be angry and stop talking to me." },
+        { key: "beliefBefore", type: "rating", label: "How much do I believe it?", hint: "0–100" },
+        { key: "alternative", type: "textarea", label: "Alternative belief", ph: "She might be disappointed for a moment, but our friendship can handle it." },
+        { key: "experiment", type: "textarea", label: "Experiment", hint: "What will I do, where and when?", ph: "On Saturday I’ll tell her I can’t help her move, without making up an excuse." },
+        { key: "prediction", type: "textarea", label: "What do I predict will happen? How will I know?" },
+        { key: "safety", type: "textarea", label: "Problems that could come up, and safety behaviours I’ll drop", ph: "I usually over-apologise. This time I’ll apologise once." },
+        { key: "outcome", type: "textarea", label: "What actually happened?", help: "Fill this in after the experiment." },
+        { key: "learned", type: "textarea", label: "What did I learn? How does it fit my prediction?" },
+        { key: "beliefAfter", type: "rating", label: "How much do I believe the original belief now?", hint: "0–100" },
+        { key: "next", type: "textarea", label: "Next step or experiment" }
+      ]
+    },
+    journal: {
+      name: "Journal", tab: "Journal",
+      blurb: "Write freely, work through something difficult with expressive writing, or note three good things from your day.",
+      ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) and the Three Good Things exercise (Seligman et al., 2005).",
+      required: "text", titleOf: r => (r.style || "Journal") + (r.text ? ": " + r.text.split("\n")[0].slice(0, 80) : ""),
+      fields: [
+        { key: "style", type: "chips", multi: false, options: Object.keys(JOURNAL_PROMPTS), def: "Free writing", label: "Type of entry" },
+        { key: "moodBefore", type: "rating", max: 10, label: "Mood before writing", hint: "0 = very low, 10 = very good" },
+        { key: "text", type: "textarea", big: true, label: "Your entry", help: " " },
+        { key: "moodAfter", type: "rating", max: 10, label: "Mood after writing", hint: "0 = very low, 10 = very good" }
+      ]
+    }
+  };
+  let tool = TOOLS[lsGet("thought-records-tool", "thought")] ? lsGet("thought-records-tool", "thought") : "thought";
+  const kindOf = (r) => (TOOLS[r.kind] ? r.kind : "thought");
+
   // ---------- list ----------
-  const sorted = () => [...records].sort((a, b) => (b.when || "").localeCompare(a.when || ""));
+  const sorted = (kind) => records.filter(r => kindOf(r) === kind).sort((a, b) => (b.when || "").localeCompare(a.when || ""));
   function fmtDate(iso, opts) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString(undefined, opts || { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }); }
   const emoText = (emos) => (emos || []).map(e => `${e.name} ${e.intensity}/100`).join(", ");
+  const has = (v) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length);
 
-  function showHome() { $("#editor").hidden = true; $("#home").hidden = false; renderList(); window.scrollTo(0, 0); }
+  function renderTools() {
+    $("#tools").innerHTML = Object.entries(TOOLS).map(([k, t]) =>
+      `<button type="button" role="tab" data-k="${k}" aria-selected="${k === tool}">${esc(t.tab)}</button>`).join("");
+    $("#tools").querySelector('[aria-selected="true"]').scrollIntoView({ block: "nearest", inline: "nearest" });
+    const t = TOOLS[tool];
+    $("#home-title").textContent = t.name;
+    $("#tool-blurb").textContent = t.blurb;
+    $("#tool-ref").textContent = t.ref;
+    $("#import-btn").hidden = tool !== "thought";
+  }
+  $("#tools").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    tool = b.dataset.k; lsSet("thought-records-tool", tool);
+    $("#pdf-panel").hidden = true;
+    renderTools(); renderList();
+  });
+
+  function showHome() { $("#editor").hidden = true; $("#home").hidden = false; renderTools(); renderList(); window.scrollTo(0, 0); }
+  function cardHTML(r) {
+    const k = kindOf(r), lines = [];
+    if (k === "thought") {
+      if (r.thought) lines.push(`<p class="t">“${esc(r.thought)}”</p>`);
+      if (r.emotions?.length) lines.push(`<p class="m">${esc(emoText(r.emotions))}</p>`);
+      if (r.behavior) lines.push(`<p class="m">→ ${esc(r.behavior)}</p>`);
+    } else if (k === "approval") {
+      if (r.fear) lines.push(`<p class="t">“${esc(r.fear)}”</p>`);
+      if (has(r.beliefBefore) && has(r.beliefAfter)) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
+      if (r.balanced) lines.push(`<p class="m">→ ${esc(r.balanced)}</p>`);
+    } else if (k === "experiment") {
+      if (r.experiment) lines.push(`<p class="m">${esc(r.experiment)}</p>`);
+      if (has(r.beliefBefore) && has(r.beliefAfter) && r.outcome) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
+      lines.push(`<p class="m">${r.outcome ? "→ " + esc(r.learned || r.outcome) : "<span class=\"pill\">Planned</span>"}</p>`);
+    } else if (k === "journal") {
+      const rest = (r.text || "").split("\n").slice(1).join(" ").trim();
+      if (rest) lines.push(`<p class="m">${esc(rest.slice(0, 160))}${rest.length > 160 ? "…" : ""}</p>`);
+      if (has(r.moodBefore) && has(r.moodAfter)) lines.push(`<p class="m">Mood ${r.moodBefore} → ${r.moodAfter}</p>`);
+    }
+    return `<button class="entry" data-id="${esc(r.id)}"><small>${esc(fmtDate(r.when))}</small><p><b>${esc(TOOLS[k].titleOf(r))}</b></p>${lines.join("")}</button>`;
+  }
   function renderList() {
     if (!unlocked) return;
-    const list = sorted();
-    $("#list").innerHTML = list.length ? list.map(r => `
-      <button class="entry" data-id="${esc(r.id)}">
-        <small>${esc(fmtDate(r.when))}</small>
-        <p><b>${esc(r.situation)}</b></p>
-        ${r.thought ? `<p class="t">“${esc(r.thought)}”</p>` : ""}
-        ${r.emotions?.length ? `<p class="m">${esc(emoText(r.emotions))}</p>` : ""}
-        ${r.behavior ? `<p class="m">→ ${esc(r.behavior)}</p>` : ""}
-      </button>`).join("")
-      : `<div class="empty"><p>No records yet.</p><p>When you notice a strong emotion or reaction, pause and tap <b>+ New record</b>.</p></div>`;
+    const list = sorted(tool);
+    $("#list").innerHTML = list.length ? list.map(cardHTML).join("")
+      : `<div class="empty"><p>No entries yet.</p><p>Tap <b>+ New</b> to start your first ${esc(TOOLS[tool].name.toLowerCase())}.</p></div>`;
     $("#list").querySelectorAll(".entry").forEach(b => b.onclick = () => openEditor(records.find(r => r.id === b.dataset.id)));
   }
 
   // ---------- editor ----------
   function toLocalInput(iso) { const d = iso ? new Date(iso) : new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
+  const EMOTIONS = ["Anxiety","Worry","Nervousness","Fear","Panic","Stress","Overwhelm","Restlessness",
+    "Sadness","Hurt","Loneliness","Grief","Disappointment","Hopelessness","Helplessness","Numbness",
+    "Anger","Irritation","Frustration","Resentment","Jealousy","Envy",
+    "Guilt","Shame","Embarrassment","Regret","Insecurity","Worthlessness","Rejection","Confusion",
+    "Calm","Relief","Hope","Happiness"];
   function emoRow(name = "", val = 50) {
     const div = document.createElement("div");
     div.className = "emo";
@@ -515,107 +636,195 @@ textarea { min-height: 84px; resize: vertical; }
     div.querySelector('input[type="text"]').addEventListener("input", syncChips);
     $("#emos").appendChild(div);
   }
-  $("#emo-add").onclick = () => emoRow();
-
-  const EMOTIONS = ["Anxiety","Worry","Nervousness","Fear","Panic","Stress","Overwhelm","Restlessness",
-    "Sadness","Hurt","Loneliness","Grief","Disappointment","Hopelessness","Helplessness","Numbness",
-    "Anger","Irritation","Frustration","Resentment","Jealousy","Envy",
-    "Guilt","Shame","Embarrassment","Regret","Insecurity","Worthlessness","Rejection","Confusion",
-    "Calm","Relief","Hope","Happiness"];
   const rowNames = () => [...$("#emos").children].map(r => r.querySelector('input[type="text"]'));
   function syncChips() {
     const chosen = new Set(rowNames().map(i => i.value.trim().toLowerCase()));
     $("#emo-chips").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", chosen.has(b.dataset.n.toLowerCase())));
   }
-  $("#emo-chips").innerHTML = EMOTIONS.map(n => `<button type="button" aria-pressed="false" data-n="${n}">${n}</button>`).join("");
-  $("#emo-chips").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    const name = b.dataset.n, inputs = rowNames();
-    const found = inputs.find(i => i.value.trim().toLowerCase() === name.toLowerCase());
-    if (found) { found.closest(".emo").remove(); if (!$("#emos").children.length) emoRow(); }
-    else { const blank = inputs.find(i => !i.value.trim()); if (blank) blank.value = name; else emoRow(name); }
+  function initEmotions(list) {
+    $("#emo-chips").innerHTML = EMOTIONS.map(n => `<button type="button" aria-pressed="false" data-n="${n}">${n}</button>`).join("");
+    $("#emo-chips").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      const name = b.dataset.n, inputs = rowNames();
+      const found = inputs.find(i => i.value.trim().toLowerCase() === name.toLowerCase());
+      if (found) { found.closest(".emo").remove(); if (!$("#emos").children.length) emoRow(); }
+      else { const blank = inputs.find(i => !i.value.trim()); if (blank) blank.value = name; else emoRow(name); }
+      syncChips();
+    });
+    $("#emo-add").onclick = () => emoRow();
+    (list?.length ? list : [{ name: "", intensity: 50 }]).forEach(e => emoRow(e.name, e.intensity));
     syncChips();
-  });
+  }
+  function readEmotions() {
+    return [...$("#emos").children].map(row => {
+      const [n, v] = row.querySelectorAll("input");
+      return { name: n.value.trim(), intensity: Math.max(0, Math.min(100, Math.round(+v.value || 0))) };
+    }).filter(x => x.name);
+  }
+
+  function fieldHTML(f, rec) {
+    const v = rec ? rec[f.key] : undefined;
+    const id = "f-" + f.key;
+    const head = (forId) => `<label${forId ? ` for="${id}"` : ""}>${esc(f.label)}${f.hint ? ` <span>· ${esc(f.hint)}</span>` : ""}</label>`;
+    const help = f.help ? `<p class="hint" id="help-${f.key}">${esc(f.help)}</p>` : "";
+    if (f.type === "textarea") return `<div>${head(true)}<textarea id="${id}"${f.big ? ' class="big"' : ""} placeholder="${esc(f.ph || "")}">${esc(v || "")}</textarea>${help}</div>`;
+    if (f.type === "text") return `<div>${head(true)}<input type="text" id="${id}" maxlength="120" placeholder="${esc(f.ph || "")}" value="${esc(v || "")}">${help}</div>`;
+    if (f.type === "rating") {
+      const max = f.max || 100, val = has(v) ? v : Math.round(max / 2);
+      return `<div>${head(true)}<div class="rating"><input type="range" id="${id}" min="0" max="${max}" step="${max === 100 ? 5 : 1}" value="${val}"><output id="o-${f.key}">${val}/${max}</output></div></div>`;
+    }
+    if (f.type === "chips") {
+      const sel = has(v) ? [].concat(v) : (f.def ? [f.def] : []);
+      return `<div>${head(false)}<div class="chips" data-key="${f.key}" data-multi="${f.multi ? 1 : 0}">${f.options.map(o =>
+        `<button type="button" aria-pressed="${sel.includes(o)}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div>${help}</div>`;
+    }
+    if (f.type === "emotions") return `<div>${head(false)}<div class="emo-chips" id="emo-chips"></div><div id="emos" style="display:grid;gap:8px"></div>
+      <button type="button" class="btn-text" id="emo-add" style="padding-left:0">+ Add emotion</button></div>`;
+    return "";
+  }
+  function readField(f) {
+    if (f.type === "textarea" || f.type === "text") return $("#f-" + f.key).value.trim();
+    if (f.type === "rating") return +$("#f-" + f.key).value;
+    if (f.type === "chips") {
+      const sel = [...document.querySelectorAll(`.chips[data-key="${f.key}"] button[aria-pressed="true"]`)].map(b => b.dataset.v);
+      return f.multi ? sel : (sel[0] || f.def || "");
+    }
+    if (f.type === "emotions") return readEmotions();
+  }
+
+  // Journal: show the prompt for the chosen style, and a timer for expressive writing
+  let timer = 0;
+  function journalStyle(style) {
+    const help = $("#help-text"); if (!help) return;
+    help.textContent = JOURNAL_PROMPTS[style] || "";
+    $("#f-text").placeholder = style === "Three good things" ? "1. …  because …\n2. …  because …\n3. …  because …" : "";
+    let t = $("#jr-timer");
+    if (style === "Expressive writing") {
+      if (!t) { help.insertAdjacentHTML("afterend", `<button type="button" class="btn" id="jr-timer" style="margin-top:8px">Start 15-minute timer</button>`); t = $("#jr-timer"); t.onclick = startTimer; }
+    } else if (t) { clearInterval(timer); t.remove(); }
+  }
+  function startTimer() {
+    clearInterval(timer);
+    const end = Date.now() + 15 * 60 * 1000, t = $("#jr-timer");
+    const tick = () => {
+      const left = Math.max(0, end - Date.now()), m = Math.floor(left / 60000), s = Math.floor(left / 1000) % 60;
+      if (!$("#jr-timer")) return clearInterval(timer);
+      t.textContent = left ? `Keep writing · ${m}:${String(s).padStart(2, "0")} left` : "15 minutes done. Finish your thought.";
+      if (!left) { clearInterval(timer); toast("15 minutes done"); }
+    };
+    tick(); timer = setInterval(tick, 1000);
+  }
 
   function openEditor(rec) {
     editing = rec || null;
-    $("#ed-title").textContent = rec ? "Edit record" : "New record";
+    const k = rec ? kindOf(rec) : tool, t = TOOLS[k];
+    clearInterval(timer);
+    $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" ? "entry" : k === "experiment" ? "experiment" : "record");
     $("#f-when").value = toLocalInput(rec?.when);
-    $("#f-sit").value = rec?.situation || "";
-    $("#f-thought").value = rec?.thought || "";
-    $("#f-beh").value = rec?.behavior || "";
-    $("#emos").innerHTML = "";
-    (rec?.emotions?.length ? rec.emotions : [{ name: "", intensity: 50 }]).forEach(e => emoRow(e.name, e.intensity));
-    syncChips();
+    $("#ed-fields").innerHTML = `<p class="blurb" style="margin:0">${esc(t.name)}</p>` + t.fields.map(f => fieldHTML(f, rec)).join("");
+    if (t.fields.some(f => f.type === "emotions")) initEmotions(rec?.emotions);
+    $("#ed-fields").querySelectorAll('input[type="range"]').forEach(r => r.oninput = () => { $("#o-" + r.id.slice(2)).textContent = `${r.value}/${r.max}`; });
+    if (k === "journal") journalStyle(readField(t.fields[0]));
     $("#ed-err").hidden = true;
-    $("#del-wrap").innerHTML = rec ? `<button type="button" class="btn-text" id="del-btn" style="color:var(--accent);width:100%">Delete this record</button>` : "";
+    $("#del-wrap").innerHTML = rec ? `<button type="button" class="btn-text" id="del-btn" style="color:var(--accent);width:100%">Delete this entry</button>` : "";
     if (rec) $("#del-btn").onclick = askDelete;
+    $("#ed-form").dataset.kind = k;
     $("#home").hidden = true; $("#editor").hidden = false; window.scrollTo(0, 0);
   }
-  $("#ed-cancel").onclick = showHome;
+  $("#ed-fields").addEventListener("click", (e) => {
+    const b = e.target.closest(".chips button"); if (!b) return;
+    const box = b.parentElement;
+    if (box.dataset.multi === "1") b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+    else { box.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); if (box.dataset.key === "style") journalStyle(b.dataset.v); }
+  });
+  $("#ed-cancel").onclick = () => { clearInterval(timer); showHome(); };
   $("#new-btn").onclick = () => openEditor();
 
   $("#ed-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const emotions = [...$("#emos").children].map(row => {
-      const [n, v] = row.querySelectorAll("input");
-      return { name: n.value.trim(), intensity: Math.max(0, Math.min(100, Math.round(+v.value || 0))) };
-    }).filter(x => x.name);
+    const k = $("#ed-form").dataset.kind, t = TOOLS[k];
     const rec = {
       id: editing?.id || "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      when: $("#f-when").value ? new Date($("#f-when").value).toISOString() : new Date().toISOString(),
-      situation: $("#f-sit").value.trim(),
-      thought: $("#f-thought").value.trim(),
-      emotions,
-      behavior: $("#f-beh").value.trim()
+      kind: k,
+      when: $("#f-when").value ? new Date($("#f-when").value).toISOString() : new Date().toISOString()
     };
-    if (!rec.situation) { const er = $("#ed-err"); er.textContent = "Write what happened before saving."; er.hidden = false; $("#f-sit").focus(); return; }
+    t.fields.forEach(f => rec[f.key] = readField(f));
+    if (!rec[t.required]) {
+      const er = $("#ed-err"), f = t.fields.find(x => x.key === t.required);
+      er.textContent = `Fill in “${f.label}” before saving.`; er.hidden = false; $("#f-" + f.key).focus(); return;
+    }
     const btn = $("#ed-save"); btn.disabled = true; btn.textContent = "Saving…";
-    try { await store.save(rec); showHome(); toast("Saved"); }
+    try { await store.save(rec); clearInterval(timer); tool = k; showHome(); toast("Saved"); }
     catch { const er = $("#ed-err"); er.textContent = "Couldn’t save. Check your connection and try again."; er.hidden = false; }
     btn.disabled = false; btn.textContent = "Save";
   });
 
   function askDelete() {
-    $("#del-wrap").innerHTML = `<div class="confirm"><span>Delete this record? This can’t be undone.</span>
+    $("#del-wrap").innerHTML = `<div class="confirm"><span>Delete this entry? This can’t be undone.</span>
       <div class="row"><button type="button" class="btn btn-primary" id="del-yes">Delete</button><button type="button" class="btn" id="del-no">Keep it</button></div></div>`;
     $("#del-no").onclick = () => openEditor(editing);
     $("#del-yes").onclick = async () => { try { await store.remove(editing.id); showHome(); toast("Deleted"); } catch { toast("Couldn’t delete. Try again."); } };
   }
 
-  // ---------- PDF ----------
-  const pdfSafe = (s) => String(s || "").replace(/[^\x09\x0A\x0D\x20-\x7E -ÿ‘’“”–—…•]/g, "");
-  $("#pdf-btn").onclick = async () => {
-    if (!unlocked) return;
-    const list = sorted();
-    if (!list.length) return toast("Add a record first, then download.");
-    if (!window.jspdf?.jsPDF) return toast("PDF tool didn’t load. Reopen the app.");
-
-    const doc = new jspdf.jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  // ---------- PDF: one file per worksheet ----------
+  const pdfSafe = (s) => String(s ?? "").replace(/[^\x09\x0A\x0D\x20-\x7E -ÿ‘’“”–—…•]/g, "");
+  const PINK = [184, 51, 106];
+  function pdfValue(f, v) {
+    if (!has(v)) return "";
+    if (f.type === "rating") return `${v}/${f.max || 100}`;
+    if (f.type === "emotions") return v.map(e => `${e.name} ${e.intensity}/100`).join("\n");
+    if (Array.isArray(v)) return v.join(", ");
+    return String(v);
+  }
+  function buildPdf(kind, list, password) {
+    const t = TOOLS[kind];
+    const opts = { orientation: kind === "thought" ? "landscape" : "portrait", unit: "pt", format: "a4" };
+    if (password) opts.encryption = { userPassword: password, ownerPassword: password, userPermissions: ["print"] };
+    const doc = new jspdf.jsPDF(opts);
     const W = doc.internal.pageSize.getWidth();
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text("Thought Record Sheet", 40, 50);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.text(pdfSafe(kind === "thought" ? "Thought Record Sheet" : t.name), 40, 50);
     doc.setFont("helvetica", "italic"); doc.setFontSize(10); doc.setTextColor(100);
-    doc.text("Track your thoughts, emotions, and reactions to understand your patterns and begin shifting them.", 40, 68);
+    doc.text(doc.splitTextToSize(pdfSafe(t.blurb), W - 80), 40, 68);
     doc.setFont("helvetica", "normal");
-    doc.text(`Exported ${fmtDate(new Date().toISOString(), { day: "numeric", month: "long", year: "numeric" })} · ${list.length} record${list.length > 1 ? "s" : ""}`, 40, 84);
-    doc.autoTable({
-      startY: 100,
-      margin: { left: 40, right: 40 },
-      head: [["Date & Situation", "Automatic Thought", "Emotion(s)", "Behavior / Reaction"]],
-      body: list.map(r => [
-        pdfSafe(`${fmtDate(r.when)}\n${r.situation}`),
-        pdfSafe(r.thought ? `“${r.thought}”` : ""),
-        pdfSafe((r.emotions || []).map(e => `${e.name} ${e.intensity}/100`).join("\n")),
-        pdfSafe(r.behavior)
-      ]),
-      styles: { font: "helvetica", fontSize: 10, cellPadding: 8, valign: "top", lineColor: [220, 216, 228], lineWidth: 0.5 },
-      headStyles: { fillColor: [184, 51, 106], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [248, 246, 250] },
-      columnStyles: { 0: { cellWidth: (W - 80) * 0.26 }, 1: { cellWidth: (W - 80) * 0.28 }, 2: { cellWidth: (W - 80) * 0.18 }, 3: { cellWidth: (W - 80) * 0.28 } }
-    });
-    const name = `thought-record-${new Date().toISOString().slice(0, 10)}.pdf`;
-    try { doc.save(name); toast("PDF downloaded"); }
-    catch { toast("Couldn’t save the PDF. Try again."); }
+    doc.text(`Exported ${fmtDate(new Date().toISOString(), { day: "numeric", month: "long", year: "numeric" })} · ${list.length} entr${list.length > 1 ? "ies" : "y"}`, 40, 98);
+    const table = { margin: { left: 40, right: 40 }, styles: { font: "helvetica", fontSize: 10, cellPadding: 7, valign: "top", lineColor: [220, 216, 228], lineWidth: 0.5 },
+      headStyles: { fillColor: PINK, textColor: 255, fontStyle: "bold" } };
+    if (kind === "thought") {
+      doc.autoTable({ ...table, startY: 112,
+        head: [["Date & Situation", "Automatic Thought", "Emotion(s)", "Behavior / Reaction"]],
+        body: list.map(r => [pdfSafe(`${fmtDate(r.when)}\n${r.situation}`), pdfSafe(r.thought ? `“${r.thought}”` : ""), pdfSafe(emoText(r.emotions).replace(/, /g, "\n")), pdfSafe(r.behavior)]),
+        alternateRowStyles: { fillColor: [248, 246, 250] },
+        columnStyles: { 0: { cellWidth: (W - 80) * 0.26 }, 1: { cellWidth: (W - 80) * 0.28 }, 2: { cellWidth: (W - 80) * 0.18 }, 3: { cellWidth: (W - 80) * 0.28 } } });
+    } else {
+      let y = 112;
+      list.forEach((r, i) => {
+        const rows = t.fields.map(f => [pdfSafe(f.label), pdfSafe(pdfValue(f, r[f.key]))]).filter(row => row[1]);
+        doc.autoTable({ ...table, startY: y,
+          head: [[{ content: pdfSafe(`${i + 1}. ${fmtDate(r.when)}`), colSpan: 2 }]],
+          body: rows, columnStyles: { 0: { cellWidth: (W - 80) * 0.32, fontStyle: "bold", textColor: [90, 85, 105] }, 1: { cellWidth: (W - 80) * 0.68 } } });
+        y = doc.lastAutoTable.finalY + 18;
+      });
+    }
+    doc.setFontSize(8); doc.setTextColor(130);
+    const pages = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= pages; p++) { doc.setPage(p); doc.text(pdfSafe(t.ref), 40, doc.internal.pageSize.getHeight() - 20); }
+    return doc;
+  }
+  $("#pdf-btn").onclick = () => {
+    if (!unlocked) return;
+    if (!sorted(tool).length) return toast("Add an entry first, then download.");
+    $("#pdf-pw").value = ""; $("#pdf-panel").hidden = false; $("#pdf-pw").focus();
+  };
+  $("#pdf-cancel").onclick = () => { $("#pdf-pw").value = ""; $("#pdf-panel").hidden = true; };
+  $("#pdf-go").onclick = () => {
+    if (!window.jspdf?.jsPDF) return toast("PDF tool didn’t load. Reopen the app.");
+    const pw = $("#pdf-pw").value;
+    $("#pdf-pw").value = ""; $("#pdf-panel").hidden = true;
+    try {
+      const doc = buildPdf(tool, sorted(tool), pw);
+      doc.save(`${TOOLS[tool].name.toLowerCase().replace(/[^a-z]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast(pw ? "PDF downloaded with a password" : "PDF downloaded");
+    } catch { toast("Couldn’t make the PDF. Try again."); }
   };
 
   // ---------- import a backup file (e.g. from the Claude version) ----------
@@ -632,6 +841,7 @@ textarea { min-height: 84px; resize: vertical; }
     if (!list.length) return toast("No records found in that file.");
     const recs = list.map(r => ({
       id: /^[A-Za-z0-9_-]{4,64}$/.test(r.id || "") ? r.id : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      kind: "thought",
       when: isNaN(new Date(r.when)) ? new Date().toISOString() : new Date(r.when).toISOString(),
       situation: str(r.situation, 5000), thought: str(r.thought, 5000), behavior: str(r.behavior, 5000),
       emotions: (Array.isArray(r.emotions) ? r.emotions : []).slice(0, 30).map(e => ({ name: str(e && e.name, 40), intensity: Math.max(0, Math.min(100, Math.round(+(e && e.intensity) || 0))) })).filter(e => e.name)
