@@ -1,5 +1,5 @@
 // Keeps the app working offline. Bump the version when files change.
-const CACHE = "thought-record-v11";
+const CACHE = "thought-record-v12";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png",
   "lib/supabase.min.js", "lib/jspdf.umd.min.js", "lib/jspdf.plugin.autotable.min.js"];
 
