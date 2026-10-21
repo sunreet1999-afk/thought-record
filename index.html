@@ -101,6 +101,12 @@ textarea { min-height: 84px; resize: vertical; }
 .rating input { width: 100%; accent-color: var(--accent); }
 .rating output { text-align: right; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 textarea.big { min-height: 220px; }
+.list-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.items { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.items:empty { display: none; }
+.items li { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.items li span { min-width: 0; overflow-wrap: anywhere; }
+.items li button { border: 0; background: none; color: var(--muted); padding: 0 4px; }
 .pill { display: inline-block; font-size: 0.75rem; font-weight: 700; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
 .tabs button { border: 0; background: none; border-radius: 8px; padding: 9px; font-weight: 700; color: var(--muted); }
@@ -497,14 +503,14 @@ textarea.big { min-height: 220px; }
         { key: "thought", type: "textarea", label: "Automatic thought", hint: "What was the first thought that came to your mind?", ph: "I’m going to fail again" },
         { key: "fear", type: "textarea", label: "Fear prediction", hint: "What do you think will happen if this thought is true? What are you afraid of?", ph: "I will fail NEET and everyone will laugh at me",
           help: "Focus on the worst-case scenario your mind is predicting." },
-        { key: "evFor", type: "textarea", label: "Reality check: evidence for", hint: "What evidence supports this fear?", ph: "Last time I didn’t pass." },
-        { key: "evAgainst", type: "textarea", label: "Reality check: evidence against", hint: "What evidence goes against it? Is there another possible outcome?",
-          ph: "I didn’t prepare consistently last time. I can still improve." },
+        { key: "evFor", type: "list", label: "Reality check: evidence for", hint: "What evidence supports this fear?", ph: "Last time I didn’t pass." },
+        { key: "evAgainst", type: "list", label: "Reality check: evidence against", hint: "What evidence goes against it? Is there another possible outcome?",
+          ph: "I didn’t prepare consistently last time." },
         { key: "action", type: "textarea", label: "Action taken", hint: "What did you do after this thought? Did you avoid or take a small step?", ph: "Studied for 20 minutes despite anxiety" }
       ],
       pdf: { title: "Thought Record Sheet (Anxiety & Fear Loop)", head: ["Date & Trigger", "Automatic Thought", "Fear Prediction", "Evidence For", "Evidence Against", "Action Taken"],
              widths: [0.18, 0.16, 0.17, 0.16, 0.17, 0.16],
-             row: r => [`${fmtDate(r.when)}\n${r.trigger || ""}`, r.thought ? `“${r.thought}”` : "", r.fear, r.evFor, r.evAgainst || r.reality, r.action] }
+             row: r => [`${fmtDate(r.when)}\n${r.trigger || ""}`, r.thought ? `“${r.thought}”` : "", r.fear, bullets(r.evFor), bullets(has(r.evAgainst) ? r.evAgainst : r.reality), r.action] }
     },
     thought: {
       name: "Thought Record", pick: "Thought record",
@@ -618,6 +624,8 @@ textarea.big { min-height: 220px; }
   const emoText = (emos) => (emos || []).map(e => `${e.name} ${e.intensity}/100`).join(", ");
   const emoLines = (emos) => (emos || []).map(e => `${e.name} ${e.intensity}/100`).join("\n");
   const has = (v) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length);
+  const toList = (v) => (Array.isArray(v) ? v : v ? [String(v)] : []);
+  const bullets = (v) => toList(v).map(x => "• " + x).join("\n");
 
   function renderTools() {
     $("#tools").innerHTML = Object.entries(TABS).map(([k, t]) =>
@@ -723,6 +731,10 @@ textarea.big { min-height: 220px; }
     const help = f.help ? `<p class="hint" id="help-${f.key}">${esc(f.help)}</p>` : "";
     if (f.type === "text") return `<div>${head(true)}<input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}" value="${esc(v || "")}"></div>`;
     if (f.type === "textarea") return `<div>${head(true)}<textarea id="${id}"${f.big ? ' class="big"' : ""} placeholder="${esc(f.ph || "")}">${esc(v || "")}</textarea>${help}</div>`;
+    if (f.type === "list") {
+      const items = toList(v).map(x => `<li><span>${esc(x)}</span><button type="button" data-del aria-label="Remove">✕</button></li>`).join("");
+      return `<div>${head(true)}<div class="list-add"><input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}"><button type="button" class="btn" data-add="${f.key}">+ Add</button></div><ul class="items" id="items-${f.key}">${items}</ul></div>`;
+    }
     if (f.type === "rating") {
       const max = f.max || 100, val = has(v) ? v : Math.round(max / 2), unit = f.hint === "0–100%" ? "%" : `/${max}`;
       return `<div>${head(true)}<div class="rating"><input type="range" id="${id}" min="0" max="${max}" step="${max === 100 ? 5 : 1}" value="${val}"><output id="o-${f.key}" data-unit="${unit}">${val}${unit}</output></div></div>`;
@@ -744,6 +756,18 @@ textarea.big { min-height: 220px; }
       return f.multi ? sel : (sel[0] || f.def || "");
     }
     if (f.type === "emotions") return readEmotions();
+    if (f.type === "list") {
+      // Include anything typed but not yet added
+      const items = [...document.querySelectorAll(`#items-${f.key} li span`)].map(x => x.textContent);
+      const pending = $("#f-" + f.key).value.trim();
+      return pending ? items.concat(pending) : items;
+    }
+  }
+  function addItem(key) {
+    const inp = $("#f-" + key), text = inp.value.trim();
+    if (!text) return inp.focus();
+    $("#items-" + key).insertAdjacentHTML("beforeend", `<li><span>${esc(text)}</span><button type="button" data-del aria-label="Remove">✕</button></li>`);
+    inp.value = ""; inp.focus();
   }
 
   // Journal: show the prompt for the chosen style, and a timer for expressive writing
@@ -789,14 +813,21 @@ textarea.big { min-height: 220px; }
     $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" || k === "achievement" ? "entry" : (k === "experiment" || k === "actionApproval") ? "experiment" : "record");
     $("#f-when").value = toLocalInput(rec?.when);
     let data = rec && k === "approval" && !rec.thought && rec.fear ? { ...rec, thought: rec.fear } : rec;
-    if (rec && k === "anxiety" && !rec.evFor && !rec.evAgainst && rec.reality) data = { ...rec, evAgainst: rec.reality };
+    if (rec && k === "anxiety" && !has(rec.evFor) && !has(rec.evAgainst) && rec.reality) data = { ...rec, evAgainst: [rec.reality] };
     renderForm(k, data);
     $("#ed-err").hidden = true;
     $("#del-wrap").innerHTML = rec ? `<button type="button" class="btn-text" id="del-btn" style="color:var(--accent);width:100%">Delete this entry</button>` : "";
     if (rec) $("#del-btn").onclick = askDelete;
     $("#home").hidden = true; $("#editor").hidden = false; window.scrollTo(0, 0);
   }
+  $("#ed-fields").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches(".list-add input")) { e.preventDefault(); addItem(e.target.id.slice(2)); }
+  });
   $("#ed-fields").addEventListener("click", (e) => {
+    const add = e.target.closest("[data-add]");
+    if (add) return addItem(add.dataset.add);
+    const del = e.target.closest("[data-del]");
+    if (del) return del.closest("li").remove();
     const pick = e.target.closest("#kind-pick button");
     if (pick) {
       // Switch record type, keeping whatever was already typed
