@@ -489,6 +489,21 @@ textarea.big { min-height: 220px; }
   };
   // Each kind of entry has its own form. Table kinds print as one row per entry, like the paper sheet.
   const TOOLS = {
+    anxiety: {
+      name: "Thought Record (Anxiety & Fear Loop)", pick: "Anxiety & Fear Loop",
+      required: "trigger", titleOf: r => r.trigger,
+      fields: [
+        { key: "trigger", type: "textarea", label: "Trigger", hint: "What happened? What situation triggered this feeling? Where were you? What were you doing?", ph: "I opened my tablet to study" },
+        { key: "thought", type: "textarea", label: "Automatic thought", hint: "What was the first thought that came to your mind?", ph: "I’m going to fail again" },
+        { key: "fear", type: "textarea", label: "Fear prediction", hint: "What do you think will happen if this thought is true? What are you afraid of?", ph: "I will fail NEET and everyone will laugh at me",
+          help: "Focus on the worst-case scenario your mind is predicting." },
+        { key: "reality", type: "textarea", label: "Reality check", hint: "What evidence supports this fear? What evidence goes against it? Is there another possible outcome?",
+          ph: "Last time I didn’t pass, but I didn’t prepare consistently. I can still improve." },
+        { key: "action", type: "textarea", label: "Action taken", hint: "What did you do after this thought? Did you avoid or take a small step?", ph: "Studied for 20 minutes despite anxiety" }
+      ],
+      pdf: { title: "Thought Record Sheet (Anxiety & Fear Loop)", head: ["Date & Trigger", "Automatic Thought", "Fear Prediction", "Reality Check", "Action Taken"], widths: [0.2, 0.18, 0.2, 0.24, 0.18],
+             row: r => [`${fmtDate(r.when)}\n${r.trigger || ""}`, r.thought ? `“${r.thought}”` : "", r.fear, r.reality, r.action] }
+    },
     thought: {
       name: "Thought Record", pick: "Thought record",
       required: "situation", titleOf: r => r.situation,
@@ -572,23 +587,26 @@ textarea.big { min-height: 220px; }
   };
   // Tabs on the home screen; a tab with several kinds shows a record-type picker in its form
   const TABS = {
+    anxiety: { name: "Anxiety & Fear", kinds: ["anxiety"],
+      blurb: "To identify anxious thoughts, challenge fear predictions, and respond more consciously instead of avoiding.",
+      ref: "Thought Record Sheet (Anxiety & Fear Loop), based on the CBT thought record (Beck, 2011)." },
     thought: { name: "Thought Record", kinds: ["thought"],
       blurb: "When you notice a strong emotion or reaction, pause and capture what happened, what went through your mind, how you felt and what you did.",
       ref: "Based on the CBT thought record (Beck, Cognitive Behavior Therapy, 2011)." },
     approval: { name: "Others’ Approval", kinds: ["approval"],
       blurb: "For moments when you worry what someone thinks of you. Capture the thought, then write a more balanced one.",
       ref: "Based on the CBT thought record (Beck, 2011) and work on approval-seeking beliefs (Weissman & Beck, 1978; Burns, 1980)." },
+    journal: { name: "Journal", kinds: ["journal"],
+      blurb: "Write freely, work through something difficult with expressive writing, or note three good things from your day.",
+      ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) and the Three Good Things exercise (Seligman et al., 2005)." },
     experiment: { name: "Behavioural Experiment", kinds: ["experiment", "actionApproval"],
       blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you feared.",
       ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004)." },
     achievement: { name: "Achievement vs Image", kinds: ["achievement"],
       blurb: "Notice whether a goal matters to you for its own sake, for recognition, or both. Both can matter, and there are no right answers.",
-      ref: "Self-reflection on personal and external motivation (Ryan & Deci, self-determination theory, 2000)." },
-    journal: { name: "Journal", kinds: ["journal"],
-      blurb: "Write freely, work through something difficult with expressive writing, or note three good things from your day.",
-      ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) and the Three Good Things exercise (Seligman et al., 2005)." }
+      ref: "Self-reflection on personal and external motivation (Ryan & Deci, self-determination theory, 2000)." }
   };
-  let tool = TABS[lsGet("thought-records-tool", "thought")] ? lsGet("thought-records-tool", "thought") : "thought";
+  let tool = TABS[lsGet("thought-records-tool", "")] ? lsGet("thought-records-tool", "") : Object.keys(TABS)[0];
   const kindOf = (r) => (TOOLS[r.kind] ? r.kind : "thought");
   const tabOf = (kind) => Object.keys(TABS).find(t => TABS[t].kinds.includes(kind));
 
@@ -624,6 +642,10 @@ textarea.big { min-height: 220px; }
       if (r.emotions?.length) lines.push(`<p class="m">${esc(emoText(r.emotions))}</p>`);
       if (r.behavior) lines.push(`<p class="m">→ ${esc(r.behavior)}</p>`);
       if (k === "approval" && r.balanced) lines.push(`<p class="m">Balanced: ${esc(r.balanced)}</p>`);
+    } else if (k === "anxiety") {
+      if (r.thought) lines.push(`<p class="t">“${esc(r.thought)}”</p>`);
+      if (r.fear) lines.push(`<p class="m">Fear: ${esc(r.fear)}</p>`);
+      if (r.action) lines.push(`<p class="m">→ ${esc(r.action)}</p>`);
     } else if (k === "experiment" || k === "actionApproval") {
       if (r.experiment) lines.push(`<p class="m">${esc(r.experiment)}</p>`);
       if (has(r.beliefBefore) && has(r.beliefAfter) && r.outcome) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
