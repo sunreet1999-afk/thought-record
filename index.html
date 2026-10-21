@@ -495,14 +495,27 @@ textarea.big { min-height: 220px; }
       fields: [
         { key: "trigger", type: "textarea", label: "Trigger", hint: "What happened? What situation triggered this feeling? Where were you? What were you doing?", ph: "I opened my tablet to study" },
         { key: "thought", type: "textarea", label: "Automatic thought", hint: "What was the first thought that came to your mind?", ph: "I’m going to fail again" },
+        { key: "anxBefore", type: "rating", label: "Anxiety right now", hint: "0 = calm, 100 = the most anxious I’ve ever felt" },
         { key: "fear", type: "textarea", label: "Fear prediction", hint: "What do you think will happen if this thought is true? What are you afraid of?", ph: "I will fail NEET and everyone will laugh at me",
           help: "Focus on the worst-case scenario your mind is predicting." },
+        { key: "likely", type: "rating", label: "How likely is it, really?", hint: "0–100%",
+          help: "Anxiety tends to make bad outcomes feel more likely than they are. Give your honest best guess." },
         { key: "reality", type: "textarea", label: "Reality check", hint: "What evidence supports this fear? What evidence goes against it? Is there another possible outcome?",
           ph: "Last time I didn’t pass, but I didn’t prepare consistently. I can still improve." },
-        { key: "action", type: "textarea", label: "Action taken", hint: "What did you do after this thought? Did you avoid or take a small step?", ph: "Studied for 20 minutes despite anxiety" }
+        { key: "cope", type: "textarea", label: "If it did happen, how could I cope?", hint: "What could I do? Who could help?", ph: "I could take a drop year, change how I study, and talk to my family." },
+        { key: "action", type: "textarea", label: "Action taken", hint: "What did you do after this thought?", ph: "Studied for 20 minutes despite anxiety" },
+        { key: "approach", type: "chips", multi: false, options: ["Avoided", "Took a small step", "Some of both"], label: "Did I avoid or take a small step?" },
+        { key: "anxAfter", type: "rating", label: "Anxiety now, after this", hint: "0–100" },
+        { key: "cameTrue", type: "chips", multi: false, options: ["Yes", "Partly", "No", "Not yet"], label: "Did the fear come true?",
+          help: "Come back and fill this in later. Keeping track shows how often fears actually happen." }
       ],
-      pdf: { title: "Thought Record Sheet (Anxiety & Fear Loop)", head: ["Date & Trigger", "Automatic Thought", "Fear Prediction", "Reality Check", "Action Taken"], widths: [0.2, 0.18, 0.2, 0.24, 0.18],
-             row: r => [`${fmtDate(r.when)}\n${r.trigger || ""}`, r.thought ? `“${r.thought}”` : "", r.fear, r.reality, r.action] }
+      pdf: { title: "Thought Record Sheet (Anxiety & Fear Loop)", head: ["Date & Trigger", "Automatic Thought", "Fear Prediction", "Reality Check & Coping", "Action Taken"], widths: [0.19, 0.18, 0.21, 0.24, 0.18],
+             row: r => [
+               `${fmtDate(r.when)}\n${r.trigger || ""}`,
+               [r.thought ? `“${r.thought}”` : "", has(r.anxBefore) ? `Anxiety: ${r.anxBefore}/100${has(r.anxAfter) ? ` → ${r.anxAfter}/100` : ""}` : ""].filter(Boolean).join("\n\n"),
+               [r.fear, has(r.likely) ? `Likelihood: ${r.likely}%` : "", r.cameTrue ? `Came true: ${r.cameTrue}` : ""].filter(Boolean).join("\n\n"),
+               [r.reality, r.cope ? `If it happened: ${r.cope}` : ""].filter(Boolean).join("\n\n"),
+               [r.action, r.approach].filter(Boolean).join("\n\n")] }
     },
     thought: {
       name: "Thought Record", pick: "Thought record",
@@ -589,7 +602,7 @@ textarea.big { min-height: 220px; }
   const TABS = {
     anxiety: { name: "Anxiety & Fear", kinds: ["anxiety"],
       blurb: "To identify anxious thoughts, challenge fear predictions, and respond more consciously instead of avoiding.",
-      ref: "Thought Record Sheet (Anxiety & Fear Loop), based on the CBT thought record (Beck, 2011)." },
+      ref: "Based on your Anxiety & Fear Loop sheet, the cognitive model of anxiety (Clark & Beck, 2010) and worry outcome tracking (LaFreniere & Newman, 2020)." },
     thought: { name: "Thought Record", kinds: ["thought"],
       blurb: "When you notice a strong emotion or reaction, pause and capture what happened, what went through your mind, how you felt and what you did.",
       ref: "Based on the CBT thought record (Beck, Cognitive Behavior Therapy, 2011)." },
@@ -646,6 +659,8 @@ textarea.big { min-height: 220px; }
       if (r.thought) lines.push(`<p class="t">“${esc(r.thought)}”</p>`);
       if (r.fear) lines.push(`<p class="m">Fear: ${esc(r.fear)}</p>`);
       if (r.action) lines.push(`<p class="m">→ ${esc(r.action)}</p>`);
+      const extra = [has(r.anxBefore) && has(r.anxAfter) ? `Anxiety ${r.anxBefore} → ${r.anxAfter}` : "", r.cameTrue ? `Came true: ${r.cameTrue}` : ""].filter(Boolean).join(" · ");
+      if (extra) lines.push(`<p class="m">${esc(extra)}</p>`);
     } else if (k === "experiment" || k === "actionApproval") {
       if (r.experiment) lines.push(`<p class="m">${esc(r.experiment)}</p>`);
       if (has(r.beliefBefore) && has(r.beliefAfter) && r.outcome) lines.push(`<p class="m">Belief ${r.beliefBefore} → ${r.beliefAfter}</p>`);
@@ -722,8 +737,8 @@ textarea.big { min-height: 220px; }
     if (f.type === "text") return `<div>${head(true)}<input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}" value="${esc(v || "")}"></div>`;
     if (f.type === "textarea") return `<div>${head(true)}<textarea id="${id}"${f.big ? ' class="big"' : ""} placeholder="${esc(f.ph || "")}">${esc(v || "")}</textarea>${help}</div>`;
     if (f.type === "rating") {
-      const max = f.max || 100, val = has(v) ? v : Math.round(max / 2);
-      return `<div>${head(true)}<div class="rating"><input type="range" id="${id}" min="0" max="${max}" step="${max === 100 ? 5 : 1}" value="${val}"><output id="o-${f.key}">${val}/${max}</output></div></div>`;
+      const max = f.max || 100, val = has(v) ? v : Math.round(max / 2), unit = f.hint === "0–100%" ? "%" : `/${max}`;
+      return `<div>${head(true)}<div class="rating"><input type="range" id="${id}" min="0" max="${max}" step="${max === 100 ? 5 : 1}" value="${val}"><output id="o-${f.key}" data-unit="${unit}">${val}${unit}</output></div></div>`;
     }
     if (f.type === "chips") {
       const sel = has(v) ? [].concat(v) : (f.def ? [f.def] : []);
@@ -776,7 +791,7 @@ textarea.big { min-height: 220px; }
       : `<p class="blurb" style="margin:0">${esc(t.name)}</p>`;
     $("#ed-fields").innerHTML = picker + t.fields.map(f => fieldHTML(f, data)).join("");
     if (t.fields.some(f => f.type === "emotions")) initEmotions(data?.emotions);
-    $("#ed-fields").querySelectorAll('input[type="range"]').forEach(r => r.oninput = () => { $("#o-" + r.id.slice(2)).textContent = `${r.value}/${r.max}`; });
+    $("#ed-fields").querySelectorAll('input[type="range"]').forEach(r => r.oninput = () => { const o = $("#o-" + r.id.slice(2)); o.textContent = r.value + o.dataset.unit; });
     if (k === "journal") journalStyle(readField(t.fields[0]));
     $("#ed-form").dataset.kind = k;
   }
