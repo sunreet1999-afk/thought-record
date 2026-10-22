@@ -493,7 +493,8 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   const JOURNAL_PROMPTS = {
     "Free writing": "Write whatever is on your mind. No rules and no editing.",
     "Expressive writing": "Write about your deepest thoughts and feelings about something that is upsetting you. Explore how it connects to your past, your relationships and who you want to be. Try to write for 15–20 minutes without stopping. Feeling a little low straight after is normal and usually passes.",
-    "Three good things": "Write three things that went well today. For each one, write why it went well and what part you played in it."
+    "Three good things": "Write three things that went well today. For each one, write why it went well and what part you played in it.",
+    "Third-person writing": "Write about what is bothering you as if you were describing someone else. Use your own name, or he, she or they, instead of “I”. Describe what happened and how this person felt, then write what you would tell them."
   };
   // Each kind of entry has its own form. Table kinds print as one row per entry, like the paper sheet.
   const TOOLS = {
@@ -608,8 +609,8 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
       blurb: "For moments when you worry what someone thinks of you. Capture the thought, then write a more balanced one.",
       ref: "Based on the CBT thought record (Beck, 2011) and work on approval-seeking beliefs (Weissman & Beck, 1978; Burns, 1980)." },
     journal: { name: "Journal", kinds: ["journal"],
-      blurb: "Write freely, work through something difficult with expressive writing, or note three good things from your day.",
-      ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) and the Three Good Things exercise (Seligman et al., 2005)." },
+      blurb: "Write freely, work through something difficult with expressive writing, note three good things from your day, or write about yourself in the third person.",
+      ref: "Based on expressive writing (Pennebaker & Beall, 1986; 15–20 minutes) the Three Good Things exercise (Seligman et al., 2005) and third-person self-talk (Kross et al., 2014)." },
     experiment: { name: "Behavioural Experiment", kinds: ["experiment", "actionApproval"],
       blurb: "Test a worried prediction in real life instead of just thinking about it. Plan it, try it, then compare what happened with what you feared.",
       ref: "Based on Bennett-Levy et al., Oxford Guide to Behavioural Experiments in Cognitive Therapy (2004)." },
@@ -780,7 +781,8 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   function journalStyle(style) {
     const help = $("#help-text"); if (!help) return;
     help.textContent = JOURNAL_PROMPTS[style] || "";
-    $("#f-text").placeholder = style === "Three good things" ? "1. …  because …\n2. …  because …\n3. …  because …" : "";
+    $("#f-text").placeholder = style === "Three good things" ? "1. …  because …\n2. …  because …\n3. …  because …"
+      : style === "Third-person writing" ? "Sam felt nervous when the results came out. Sam thought…\n\nWhat I would tell Sam: …" : "";
     let t = $("#jr-timer");
     if (style === "Expressive writing") {
       if (!t) { help.insertAdjacentHTML("afterend", `<button type="button" class="btn" id="jr-timer" style="margin-top:8px">Start 15-minute timer</button>`); t = $("#jr-timer"); t.onclick = startTimer; }
