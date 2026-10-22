@@ -101,6 +101,7 @@ textarea { min-height: 84px; resize: vertical; }
 .rating input { width: 100%; accent-color: var(--accent); }
 .rating output { text-align: right; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 textarea.big { min-height: 220px; }
+textarea.masked { -webkit-text-security: disc; text-security: disc; }
 .list-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .items { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
 .items:empty { display: none; }
@@ -209,6 +210,7 @@ textarea.big { min-height: 220px; }
     <div id="ed-fields" style="display:grid;gap:16px"></div>
     <p class="err" id="ed-err" hidden></p>
     <button class="btn btn-primary btn-block" id="ed-save">Save</button>
+    <div id="push-wrap"></div>
     <div id="del-wrap"></div>
   </form>
 </div>
@@ -584,10 +586,11 @@ textarea.big { min-height: 220px; }
     },
     journal: {
       name: "Journal", pick: "Journal",
-      required: "text", titleOf: r => (r.style || "Journal") + (r.text ? ": " + r.text.split("\n")[0].slice(0, 80) : ""),
+      required: "text", titleOf: r => (r.style || "Journal") + (r.hide ? ": hidden entry" : r.text ? ": " + r.text.split("\n")[0].slice(0, 80) : ""),
       fields: [
         { key: "style", type: "chips", multi: false, options: Object.keys(JOURNAL_PROMPTS), def: "Free writing", label: "Type of entry" },
         { key: "moodBefore", type: "rating", max: 10, label: "Mood before writing", hint: "0 = very low, 10 = very good" },
+        { key: "hide", type: "check", label: "Hide my writing (shows dots, like a password)" },
         { key: "text", type: "textarea", big: true, label: "Your entry", help: " " },
         { key: "moodAfter", type: "rating", max: 10, label: "Mood after writing", hint: "0 = very low, 10 = very good" }
       ]
@@ -665,7 +668,7 @@ textarea.big { min-height: 220px; }
       if (r.praised) lines.push(`<p class="m">If only praised: ${esc(r.praised)}</p>`);
       if (r.matters) lines.push(`<p class="m">→ ${esc(r.matters)}</p>`);
     } else if (k === "journal") {
-      const rest = (r.text || "").split("\n").slice(1).join(" ").trim();
+      const rest = r.hide ? "" : (r.text || "").split("\n").slice(1).join(" ").trim();
       if (rest) lines.push(`<p class="m">${esc(rest.slice(0, 160))}${rest.length > 160 ? "…" : ""}</p>`);
       if (has(r.moodBefore) && has(r.moodAfter)) lines.push(`<p class="m">Mood ${r.moodBefore} → ${r.moodAfter}</p>`);
     }
@@ -731,6 +734,7 @@ textarea.big { min-height: 220px; }
     const help = f.help ? `<p class="hint" id="help-${f.key}">${esc(f.help)}</p>` : "";
     if (f.type === "text") return `<div>${head(true)}<input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}" value="${esc(v || "")}"></div>`;
     if (f.type === "textarea") return `<div>${head(true)}<textarea id="${id}"${f.big ? ' class="big"' : ""} placeholder="${esc(f.ph || "")}">${esc(v || "")}</textarea>${help}</div>`;
+    if (f.type === "check") return `<div><label class="check"><input type="checkbox" id="${id}"${v ? " checked" : ""}> ${esc(f.label)}</label></div>`;
     if (f.type === "list") {
       const items = toList(v).map(x => `<li><span>${esc(x)}</span><button type="button" data-del aria-label="Remove">✕</button></li>`).join("");
       return `<div>${head(true)}<div class="list-add"><input type="text" id="${id}" maxlength="300" placeholder="${esc(f.ph || "")}"><button type="button" class="btn" data-add="${f.key}">+ Add</button></div><ul class="items" id="items-${f.key}">${items}</ul></div>`;
@@ -756,6 +760,7 @@ textarea.big { min-height: 220px; }
       return f.multi ? sel : (sel[0] || f.def || "");
     }
     if (f.type === "emotions") return readEmotions();
+    if (f.type === "check") return $("#f-" + f.key).checked;
     if (f.type === "list") {
       // Include anything typed but not yet added
       const items = [...document.querySelectorAll(`#items-${f.key} li span`)].map(x => x.textContent);
@@ -803,21 +808,35 @@ textarea.big { min-height: 220px; }
     $("#ed-fields").innerHTML = picker + t.fields.map(f => fieldHTML(f, data)).join("");
     if (t.fields.some(f => f.type === "emotions")) initEmotions(data?.emotions);
     $("#ed-fields").querySelectorAll('input[type="range"]').forEach(r => r.oninput = () => { const o = $("#o-" + r.id.slice(2)); o.textContent = r.value + o.dataset.unit; });
-    if (k === "journal") journalStyle(readField(t.fields[0]));
+    if (k === "journal") { journalStyle(readField(t.fields[0])); $("#f-hide").onchange = () => applyHide(true); applyHide(true); }
     $("#ed-form").dataset.kind = k;
   }
-  function openEditor(rec) {
+  // Hidden journal text: shown as dots until "Show" is tapped. Only the screen is masked; the text is saved and printed in full.
+  function applyHide(mask) {
+    const on = $("#f-hide").checked, ta = $("#f-text");
+    ta.classList.toggle("masked", on && mask);
+    ta.spellcheck = !on; ta.autocomplete = on ? "off" : "on";
+    let b = $("#hide-toggle");
+    if (!on) { if (b) b.remove(); return; }
+    if (!b) { ta.insertAdjacentHTML("afterend", `<button type="button" class="btn" id="hide-toggle" style="margin-top:8px"></button>`); b = $("#hide-toggle"); b.onclick = () => applyHide(!ta.classList.contains("masked")); }
+    b.textContent = ta.classList.contains("masked") ? "Show text" : "Hide text";
+  }
+  // `prefill` opens a new entry of another kind with some fields already filled in
+  function openEditor(rec, prefill) {
     editing = rec || null;
-    const k = rec ? kindOf(rec) : TABS[tool].kinds[0];
+    const k = rec ? kindOf(rec) : prefill ? prefill.kind : TABS[tool].kinds[0];
     clearInterval(timer);
     $("#ed-title").textContent = (rec ? "Edit " : "New ") + (k === "journal" || k === "achievement" ? "entry" : (k === "experiment" || k === "actionApproval") ? "experiment" : "record");
-    $("#f-when").value = toLocalInput(rec?.when);
-    let data = rec && k === "approval" && !rec.thought && rec.fear ? { ...rec, thought: rec.fear } : rec;
+    $("#f-when").value = toLocalInput(rec?.when || prefill?.when);
+    let data = prefill ? prefill.data : rec && k === "approval" && !rec.thought && rec.fear ? { ...rec, thought: rec.fear } : rec;
     if (rec && k === "anxiety" && !has(rec.evFor) && !has(rec.evAgainst) && rec.reality) data = { ...rec, evAgainst: [rec.reality] };
     renderForm(k, data);
     $("#ed-err").hidden = true;
     $("#del-wrap").innerHTML = rec ? `<button type="button" class="btn-text" id="del-btn" style="color:var(--accent);width:100%">Delete this entry</button>` : "";
     if (rec) $("#del-btn").onclick = askDelete;
+    $("#push-wrap").innerHTML = ["thought", "approval", "journal"].includes(k)
+      ? `<button type="button" class="btn btn-block" id="push-btn">Send to Anxiety & Fear →</button>` : "";
+    if ($("#push-btn")) $("#push-btn").onclick = pushToAnxiety;
     $("#home").hidden = true; $("#editor").hidden = false; window.scrollTo(0, 0);
   }
   $("#ed-fields").addEventListener("keydown", (e) => {
@@ -863,6 +882,20 @@ textarea.big { min-height: 220px; }
     catch { const er = $("#ed-err"); er.textContent = "Couldn’t save. Check your connection and try again."; er.hidden = false; }
     btn.disabled = false; btn.textContent = "Save";
   });
+
+  // Start a new Anxiety & Fear record from what is on screen; the evidence boxes stay empty
+  function pushToAnxiety() {
+    const k = $("#ed-form").dataset.kind, cur = {};
+    TOOLS[k].fields.forEach(f => cur[f.key] = readField(f));
+    const data = k === "journal"
+      ? { trigger: cur.text }
+      : { trigger: cur.situation, thought: cur.thought, action: cur.behavior };
+    const when = $("#f-when").value ? new Date($("#f-when").value).toISOString() : undefined;
+    clearInterval(timer);
+    tool = "anxiety";
+    openEditor(null, { kind: "anxiety", data, when });
+    toast("Copied to a new Anxiety & Fear record. The original is unchanged.");
+  }
 
   function askDelete() {
     $("#del-wrap").innerHTML = `<div class="confirm"><span>Delete this entry? This can’t be undone.</span>
