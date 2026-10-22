@@ -132,6 +132,7 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
     </div>
     <h2 id="lock-title">Thought Record</h2>
     <p id="lock-sub">Log in to open your records.</p>
+    <button type="button" class="btn btn-primary btn-block" id="fp-btn" hidden>Unlock with fingerprint</button>
     <div class="tabs" id="auth-tabs" role="tablist">
       <button type="button" role="tab" id="tab-login" data-m="login">Log in</button>
       <button type="button" role="tab" id="tab-signup" data-m="signup">Sign up</button>
@@ -192,6 +193,7 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   </div>
   <div id="list" style="display:grid;gap:10px"></div>
   <p class="hint" id="tool-ref"></p>
+  <button class="btn-text" id="fp-toggle" style="align-self:flex-start;padding-left:0" hidden></button>
   <button class="btn-text" id="import-btn" style="align-self:flex-start;padding-left:0">Import backup file</button>
   <input type="file" id="import-file" accept=".json,application/json" hidden>
 </div>
@@ -234,6 +236,9 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   let editing = null;
   let mode = "login";
   let dataKey = null;   // AES key that encrypts every record; exists only in memory while logged in
+  let lastRaw = null;   // the same key as bytes, kept only while unlocked so fingerprint unlock can be turned on
+  let fpKey = null;     // key from the fingerprint passkey, only while unlocked with it on this device
+  const LS_FP = "thought-records-fingerprint";
   let recovering = /type=recovery/.test(location.hash);
 
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600); }
@@ -255,6 +260,7 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   async function seal(key, bytes) { const iv = crypto.getRandomValues(new Uint8Array(12)); return b64(iv) + "." + b64(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes)); }
   async function unseal(key, str) { const [iv, ct] = str.split("."); return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: ub64(iv) }, key, ub64(ct))); }
   const importDataKey = (raw) => crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const useRaw = (raw) => { lastRaw = new Uint8Array(raw); return importDataKey(raw); };
   async function wrapRaw(raw, secret) { const salt = randB64(16); return { salt, wrapped: await seal(await deriveKey(secret, salt), raw) }; }
   async function unwrapRaw(wrapped, secret, salt) { return unseal(await deriveKey(secret, salt), wrapped); }
   const normCode = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -287,14 +293,14 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
     panel("rec-show");
     await waitFor("#rec-continue");
     panel("form");
-    return importDataKey(raw);
+    return useRaw(raw);
   }
 
   async function unlockKeys(pw) {
     const { data: row, error } = await sb.from("keys").select("salt,wrapped_pw,rsalt,wrapped_rec").maybeSingle();
     if (error) throw error;
     if (!row) return createKeys(pw);
-    try { return await importDataKey(await unwrapRaw(row.wrapped_pw, pw, row.salt)); }
+    try { return await useRaw(await unwrapRaw(row.wrapped_pw, pw, row.salt)); }
     catch { /* password was reset since the key was wrapped: ask for the recovery code */ }
     $("#lock-sub").textContent = "Your password was changed. Enter your recovery code to unlock your records.";
     $("#rec-input").value = ""; $("#rec-err").hidden = true; $("#rec-wipe-confirm").hidden = true;
@@ -319,12 +325,82 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
         const { error: e2 } = await sb.from("keys").update({ salt: a.salt, wrapped_pw: a.wrapped, updated_at: new Date().toISOString() }).not("salt", "is", null);
         if (e2) throw e2;
         panel("form");
-        return importDataKey(raw);
+        return useRaw(raw);
       } catch (x) {
         $("#rec-err").textContent = x && x.code ? friendly(x) : "That recovery code is wrong. Check it and try again.";
         $("#rec-err").hidden = false;
       }
     }
+  }
+
+  // ---------- fingerprint unlock ----------
+  // A passkey on this phone (unlocked by fingerprint or screen lock) produces a secret through the PRF
+  // extension. That secret encrypts, on this device only, the record key and the login session.
+  const fpSupported = () => !!(window.PublicKeyCredential && navigator.credentials);
+  const fpSaved = () => { const f = lsGet(LS_FP, null); return f && f.id && f.dk ? f : null; };
+  const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+  const NO_PRF = "This phone or browser can’t use fingerprint unlock here. Use your password.";
+  async function prfFromPasskey(rawId, salt) {
+    const a = await navigator.credentials.get({ publicKey: { challenge: rand(32), allowCredentials: [{ type: "public-key", id: rawId }],
+      userVerification: "required", timeout: 60000, extensions: { prf: { eval: { first: salt } } } } });
+    const out = a.getClientExtensionResults().prf?.results?.first;
+    if (!out) throw { message: NO_PRF };
+    return out;
+  }
+  const keyFromPrf = (out) => crypto.subtle.importKey("raw", new Uint8Array(out).slice(0, 32), "AES-GCM", false, ["encrypt", "decrypt"]);
+  async function saveFpSession() {
+    const f = fpSaved(); if (!f || !fpKey) return;
+    const { data } = await sb.auth.getSession();
+    if (!data.session) return;
+    f.rt = await seal(fpKey, te.encode(data.session.refresh_token));
+    lsSet(LS_FP, f);
+  }
+  async function enableFingerprint() {
+    if (!unlocked || !lastRaw) return;
+    if (!fpSupported()) return toast(NO_PRF);
+    try {
+      const salt = rand(32);
+      const cred = await navigator.credentials.create({ publicKey: {
+        rp: { name: "Thought Record" },
+        user: { id: rand(16), name: lsGet(LS_EMAIL, "Thought Record"), displayName: "Thought Record" },
+        challenge: rand(32), timeout: 60000,
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+        extensions: { prf: { eval: { first: salt } } } } });
+      const ext = cred.getClientExtensionResults().prf;
+      if (!ext || ext.enabled === false) throw { message: NO_PRF };
+      const out = ext.results?.first || await prfFromPasskey(cred.rawId, salt);
+      fpKey = await keyFromPrf(out);
+      lsSet(LS_FP, { id: b64(cred.rawId), salt: b64(salt), dk: await seal(fpKey, lastRaw) });
+      await saveFpSession();
+      renderFpToggle(); toast("Fingerprint unlock is on for this phone");
+    } catch (x) { if (x && x.name !== "NotAllowedError") toast(x.message || NO_PRF); }
+  }
+  function disableFingerprint() { lsDel(LS_FP); fpKey = null; renderFpToggle(); toast("Fingerprint unlock is off"); }
+  function renderFpToggle() {
+    const b = $("#fp-toggle"); if (!b) return;
+    b.hidden = !fpSupported();
+    b.textContent = fpSaved() ? "Turn off fingerprint unlock" : "Turn on fingerprint unlock";
+  }
+  async function fingerprintUnlock() {
+    const f = fpSaved(), err = $("#lock-err"), btn = $("#fp-btn");
+    if (!f || !f.rt) return;
+    err.hidden = true; btn.disabled = true;
+    try {
+      fpKey = await keyFromPrf(await prfFromPasskey(ub64(f.id), ub64(f.salt)));
+      const raw = await unseal(fpKey, f.dk);
+      const { error } = await sb.auth.refreshSession({ refresh_token: td.decode(await unseal(fpKey, f.rt)) });
+      if (error) { delete f.rt; lsSet(LS_FP, f); fpKey = null; throw { message: "Fingerprint unlock has expired. Log in with your password once to use it again." }; }
+      await saveFpSession();
+      await openApp(null, raw);
+    } catch (x) {
+      fpKey = null;
+      if (x && x.name !== "NotAllowedError") {
+        err.textContent = x.name === "OperationError" ? "Fingerprint unlock didn’t work. Log in with your password, then turn it on again." : x.message ? friendly(x) : NO_PRF;
+        err.hidden = false;
+      }
+    }
+    btn.disabled = false; $("#fp-btn").hidden = !fpSaved()?.rt;
   }
 
   // ---------- online storage (each user sees only their own rows, and only as ciphertext) ----------
@@ -395,15 +471,19 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   $("#back-btn").onclick = () => setMode("login");
 
   function showLock() {
-    unlocked = false; records = []; editing = null; dataKey = null;
+    unlocked = false; records = []; editing = null; dataKey = null; lastRaw = null; fpKey = null;
     $("#home").hidden = true; $("#editor").hidden = true;
     $("#list").innerHTML = "";
     clearInterval(timer);
     $("#lock").hidden = false;
     $("#email").value = lsGet(LS_EMAIL, "");
     setMode(recovering ? "newpass" : "login");
+    $("#fp-btn").hidden = recovering || !fpSaved()?.rt;
   }
-  async function logOut() { showLock(); try { await sb.auth.signOut({ scope: "local" }); } catch {} }
+  async function logOut() {
+    if (fpSaved()?.rt) { showLock(); location.reload(); return; }
+    showLock(); try { await sb.auth.signOut({ scope: "local" }); } catch {}
+  }
 
   $("#lock-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -453,6 +533,7 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   // Links from emails come back with a session in the address
   const fromEmailLink = /access_token/.test(location.hash);
   sb.auth.onAuthStateChange((event, session) => {
+    if (event === "TOKEN_REFRESHED" && fpKey) { saveFpSession().catch(() => {}); return; }
     if (event === "PASSWORD_RECOVERY") { recovering = true; if (!unlocked) setMode("newpass"); }
     else if (event === "SIGNED_IN" && session && fromEmailLink && !recovering && !unlocked) {
       // Email confirmed: the password is still needed to unlock the encrypted records
@@ -461,9 +542,9 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
     }
   });
 
-  async function openApp(pw) {
+  async function openApp(pw, raw) {
     if (unlocked) return;
-    dataKey = await unlockKeys(pw);
+    dataKey = raw ? await useRaw(raw) : await unlockKeys(pw);
     unlocked = true;
     $("#lock").hidden = true;
     $("#home").hidden = false; $("#editor").hidden = true;
@@ -640,6 +721,7 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
     $("#tool-blurb").textContent = t.blurb;
     $("#tool-ref").textContent = t.ref;
     $("#import-btn").hidden = tool !== "thought";
+    renderFpToggle();
   }
   $("#tools").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -989,6 +1071,9 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
   };
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+  $("#fp-btn").onclick = fingerprintUnlock;
+  $("#fp-toggle").onclick = () => (fpSaved() ? disableFingerprint() : enableFingerprint());
 
   // ---------- start ----------
   showLock();
