@@ -1,0 +1,31 @@
+# Deploys the "ai" Supabase Edge Function. Needs one GitHub secret: SUPABASE_ACCESS_TOKEN.
+# The Anthropic key is NOT here: it lives only in Supabase (Edge Functions → Secrets).
+name: Deploy AI function
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/functions/**", ".github/workflows/deploy-ai-function.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test
+        run: deno test --allow-env --allow-net --no-lock supabase/tests/ai_test.ts
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      # JWT is checked inside the function (Supabase Auth + allowed user id), so the gateway check is off.
+      - name: Deploy
+        run: supabase functions deploy ai --project-ref gxlgnqtbmytwjoisrsjf --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
