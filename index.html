@@ -435,9 +435,12 @@ textarea.masked { -webkit-text-security: disc; text-security: disc; }
 
   // ---------- login screen ----------
   const netMsg = "No internet connection. Connect and try again.";
+  // The phone is online but the request never reached the server (most often the free Supabase project is paused)
+  const serverMsg = "Can’t reach the server. If your internet is working, the online database may be paused: open the Supabase dashboard and restore the project, then try again.";
   function friendly(err) {
     const m = (err && err.message || "").toLowerCase();
-    if (!navigator.onLine || m.includes("fetch")) return netMsg;
+    if (!navigator.onLine) return netMsg;
+    if (m.includes("fetch") || m.includes("load failed") || m.includes("network") || (err && err.name === "AuthRetryableFetchError")) return serverMsg;
     if (m.includes("invalid login")) return "Email or password is wrong.";
     if (m.includes("not confirmed")) return "Confirm your email first. Open the link we emailed you, then log in.";
     if (m.includes("rate limit") || m.includes("security purposes")) return "Too many tries. Wait a minute and try again.";
